@@ -1,4 +1,4 @@
-# A collection of public Icinga checks we use
+# A collection of Icinga checks we use and share with the public
 
 ## Work in progress
 
