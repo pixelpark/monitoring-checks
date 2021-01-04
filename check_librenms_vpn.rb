@@ -25,11 +25,11 @@ OptionParser.new do |opts|
   opts.on("-l LIBRENMS") { |librenms| @options[:librenms] = librenms }
 end.parse!
 
-librenms_ports = librenms_api(auth_token = @options[:auth], librenms_host = @options[:librenms], query = "api/v0/ports?columns=ifName,port_id")
+librenms_ports = librenms_api(@options[:auth], @options[:librenms], "api/v0/ports?columns=ifName,port_id")
 
 librenms_ports['ports'].each do |port|
   if port['ifName'] == @options[:name]
-    vpn_status  = librenms_api(auth_token = @options[:auth], query="api/v0/ports/#{port['port_id']}")
+    vpn_status  = librenms_api(@options[:auth], @options[:librenms], "api/v0/ports/#{port['port_id']}")
     operstatus  = vpn_status['port'][0]['ifOperStatus']
     adminstatus = vpn_status['port'][0]['ifAdminStatus']
     status      = [0, 'OK'] if operstatus == 'up' && adminstatus == 'up'
