@@ -33,8 +33,15 @@ end
 #
 #   which('ruby') #=> /usr/bin/ruby
 def which(cmd)
+    std_paths = [ '/bin', '/sbin', '/usr/bin', '/usr/sbin', '/usr/local/bin', '/usr/local/sbin' ]
     exts = ENV['PATHEXT'] ? ENV['PATHEXT'].split(';') : ['']
     ENV['PATH'].split(File::PATH_SEPARATOR).each do |path|
+        exts.each do |ext|
+            exe = File.join(path, "#{cmd}#{ext}")
+            return exe if File.executable?(exe) && !File.directory?(exe)
+        end
+    end
+    std_paths.each do |path|
         exts.each do |ext|
             exe = File.join(path, "#{cmd}#{ext}")
             return exe if File.executable?(exe) && !File.directory?(exe)
@@ -45,7 +52,7 @@ end
 
 class OptparseCheckZfs
 
-    Version = '0.2.1'
+    Version = '0.2.2'
 
     class ScriptOptions
 
@@ -179,7 +186,7 @@ if options.verbose then
 end
 
 if options.pools.empty? then
-    pools = %x( zpool list -H | awk '{print $1}' ).strip!.split(/\n/)
+    pools = %x( #{zpool} list -H | awk '{print $1}' ).strip!.split(/\n/)
     if pools.empty? then
         puts "UNKNOWN - No ZFS pools found."
         exit 3
@@ -201,17 +208,17 @@ state_total = [0, 'OK']
 
 for pool in pools do
 
-    uhu = %x( zpool list #{pool} >/dev/null 2>&1 )
+    uhu = %x( #{zpool} list #{pool} >/dev/null 2>&1 )
     unless $?.success? then
         puts "UNKNOWN - ZFS Pool '#{pool}' does not exists."
         exit 3
     end
 
-    pool_values = %x( zfs get -o value -Hp used,available #{pool}).split("\n")
-    pool_state  = %x( zpool status #{pool} | grep 'state:'  | awk -F':' '{print $2}' ).strip!
-    pool_errors = %x( zpool status #{pool} | grep 'errors:' | awk -F':' '{print $2}' ).strip!
-    pool_action = %x( zpool status #{pool} | grep 'action:' | awk -F':' '{print $2}' ).strip!
-    pool_scan   = %x( zpool status #{pool} | grep 'scan:'   | sed -e 's/[ 	]*scan://' ).strip!
+    pool_values = %x( #{zfs} get -o value -Hp used,available #{pool}).split("\n")
+    pool_state  = %x( #{zpool} status #{pool} | grep 'state:'  | awk -F':' '{print $2}' ).strip!
+    pool_errors = %x( #{zpool} status #{pool} | grep 'errors:' | awk -F':' '{print $2}' ).strip!
+    pool_action = %x( #{zpool} status #{pool} | grep 'action:' | awk -F':' '{print $2}' ).strip!
+    pool_scan   = %x( #{zpool} status #{pool} | grep 'scan:'   | sed -e 's/[ 	]*scan://' ).strip!
 
     zused      = pool_values[0].to_i
     zavailable = pool_values[1].to_i
