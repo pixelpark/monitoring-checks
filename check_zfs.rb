@@ -21,10 +21,10 @@ Unit = Struct.new(:mu, :o_mu, :divisor)
 def find_mu mu
     not_found = ->{ raise "No measuring unit found for mu #{mu}" }
     [ Unit.new('b', '', 1),
-      Unit.new('k', 'KiB', 1024),
-      Unit.new('m', 'MiB', 1024 * 1024),
-      Unit.new('g', 'GiB', 1024 * 1024 * 1024),
-      Unit.new('t', 'TiB', 1024 * 1024 * 1024 * 1024) ].find(not_found) do |u|
+      Unit.new('k', 'K', 1024),
+      Unit.new('m', 'M', 1024 * 1024),
+      Unit.new('g', 'G', 1024 * 1024 * 1024),
+      Unit.new('t', 'T', 1024 * 1024 * 1024 * 1024) ].find(not_found) do |u|
           u.mu == mu
     end
 end
@@ -52,7 +52,7 @@ end
 
 class OptparseCheckZfs
 
-    Version = '0.2.2'
+    Version = '0.2.3'
 
     class ScriptOptions
 
