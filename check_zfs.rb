@@ -45,7 +45,7 @@ end
 
 class OptparseCheckZfs
 
-    Version = '0.2.0'
+    Version = '0.2.1'
 
     class ScriptOptions
 
@@ -179,7 +179,7 @@ if options.verbose then
 end
 
 if options.pools.empty? then
-    pools = %x( zpool list -p -H | awk '{print $1}' ).strip!.split(/\n/)
+    pools = %x( zpool list -H | awk '{print $1}' ).strip!.split(/\n/)
     if pools.empty? then
         puts "UNKNOWN - No ZFS pools found."
         exit 3
