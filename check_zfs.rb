@@ -52,7 +52,7 @@ end
 
 class OptparseCheckZfs
 
-    Version = '0.2.3'
+    Version = '0.2.4'
 
     class ScriptOptions
 
@@ -224,7 +224,14 @@ for pool in pools do
     zavailable = pool_values[1].to_i
     ztotal     = zused + zavailable
     zusage     = ((zused.to_f / ztotal.to_f) * 100).round(2)
-    o_zcapacity = (zusage).round(2)
+
+    if divisor != 1 then
+        limit_usage_warn = (ztotal * options.warn / 100 / divisor).round(2)
+        limit_usage_crit = (ztotal * options.crit / 100 / divisor).round(2)
+    else
+        limit_usage_warn = (ztotal * options.warn / 100).round(0)
+        limit_usage_crit = (ztotal * options.crit / 100).round(0)
+    end
 
     if state_total[0] < 2 then
 
@@ -258,7 +265,7 @@ for pool in pools do
 
     perfdata += "usage_#{pool}=#{zusage}%;#{options.warn};#{options.crit}; "
     perfdata += "total_#{pool}=#{o_ztotal}#{unit};;; "
-    perfdata += "used_#{pool}=#{o_zused}#{unit};;; "
+    perfdata += "used_#{pool}=#{o_zused}#{unit};#{limit_usage_warn};#{limit_usage_crit}; "
     perfdata += "free_#{pool}=#{o_zavailable}#{unit};;;"
 
 end
