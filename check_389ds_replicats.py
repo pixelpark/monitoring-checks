@@ -255,6 +255,8 @@ class Check389dsReplicatsApp(object):
         res['verbose'] = self.verbose
         res['initialized'] = self.initialized
         res['base_dir'] = self.base_dir
+        if self.verbose < 4:
+            res['bind_pw'] = '********'
 
         return res
     # -------------------------------------------------------------------------
