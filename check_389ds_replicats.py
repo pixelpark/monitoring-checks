@@ -1,5 +1,16 @@
 #!/usr/bin/python3
 # -*- coding: utf-8 -*-
+#
+# Author: Frank Brehm <frank@brehm-online.com
+#         Berlin, Germany, 2021
+# Date:   2021-02-18
+# By an idea of: Emmanuel BUU <emmanuel.buu@ives.fr> (c) IVèS
+#                http://www.ives.fr/
+#
+# Usage: ./check_389ds_replicats.py -D cn=admin -H LDAP_SERVER -y PASSWORD_FILE
+#        OK - check_389ds_replicats: Replication to <REPLICATION_PARTNER>, Last Operation <TIMESTAMP>, Status: Error (0) Replica acquired successfully: Incremental update succeeded.
+#
+
 from __future__ import print_function
 
 import sys
@@ -35,7 +46,7 @@ LOG = logging.getLogger(__name__)
 
 __author__ = 'Frank Brehm <frank@brehm-online.com>'
 __copyright__ = '(C) 2021 by Frank Brehm, Berlin'
-__version__ = '0.4.0'
+__version__ = '0.4.1'
 
 
 # =============================================================================
