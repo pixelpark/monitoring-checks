@@ -35,7 +35,7 @@ LOG = logging.getLogger(__name__)
 
 __author__ = 'Frank Brehm <frank@brehm-online.com>'
 __copyright__ = '(C) 2021 by Frank Brehm, Berlin'
-__version__ = '0.3.0'
+__version__ = '0.4.0'
 
 
 # =============================================================================
@@ -602,24 +602,50 @@ class Check389dsReplicatsApp(object):
         entries = self.ldap_search(obj_classes=agreement_class, attributes=ALL_ATTRIBUTES)
 
         results = []
+        msgs = []
+        total_status = 0
+
+        re_status = re.compile(r'^[^\(]*\((-?\d+)\)')
 
         for entry in entries:
             e = {}
             for key in entry:
                 if key.lower() == 'nsds5replicalastupdatestatusjson':
-                    data = []
                     for val in entry[key]:
-                        data.append(json.loads(val))
-                    e['last_update_status_data'] = data
+                        e['last_update_status_data'] = json.loads(val)
+                        break
                 elif key.lower() == 'nsds5replicahost':
-                    e['replica_host'] = entry[key]
+                    e['replica_host'] = entry[key][0]
                 elif key.lower() == 'nsds5replicalastupdatestatus':
-                    e['last_update_status'] = entry[key]
+                    e['last_update_status'] = entry[key][0]
                 elif key.lower() == 'nsds5replicalastupdatestart':
-                    e['last_update_start'] = entry[key]
+                    e['last_update_start'] = entry[key][0]
                 elif key.lower() == 'nsds5replicalastupdateend':
-                    e['last_update_end'] = entry[key]
+                    e['last_update_end'] = entry[key][0]
+
+            statuscode = None
+            if 'last_update_status_data' in e:
+                data = e['last_update_status_data']
+                statuscode = int(data['repl_rc'])
+            else:
+                match = re_status.match(e['last_update_status'])
+                if match:
+                    statuscode = int(match.group(1))
+            LOG.debug("Found status code {}".format(statuscode))
+            e['status_code'] = statuscode
+
+            if statuscode:
+                total_status = 2
+
             results.append(e)
+
+            dt = e['last_update_start'].isoformat(' ', 'seconds')
+            msg = "Replication to {host}, Last Operation {lo}, Status: {st}.".format(
+                    host=e['replica_host'], lo=dt, st=e['last_update_status'])
+            msgs.append(msg)
+
+        self.status_msg = '\n'.join(msgs)
+        self.status_code = total_status
 
         if self.verbose > 1:
             LOG.debug("Result of searching:\n{}".format(pp(results)))
