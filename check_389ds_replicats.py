@@ -11,7 +11,8 @@ import pprint
 import pathlib
 import datetime
 
-import ldap3
+from ldap3 import Server, Connection, Reader, ObjectDef
+from ldap3.utils.log import set_library_log_detail_level, ERROR, BASIC, PROTOCOL, NETWORK, EXTENDED
 
 if sys.version_info[0] != 3:
     print("This script is intended to use with Python3.", file=sys.stderr)
@@ -29,7 +30,7 @@ LOG = logging.getLogger(__name__)
 
 __author__ = 'Frank Brehm <frank@brehm-online.com>'
 __copyright__ = '(C) 2021 by Frank Brehm, Berlin'
-__version__ = '0.1.0'
+__version__ = '0.2.0'
 
 
 # =============================================================================
@@ -69,6 +70,12 @@ class Check389dsReplicatsApp(object):
 
     error_codes = get_error_codes(errors)
 
+    default_ldap_port = 389
+    default_ldap_port_ssl = 636
+    default_ldap_use_ssl = False
+
+    default_ldap_base_dn = 'cn=config'
+
     # -------------------------------------------------------------------------
     @classmethod
     def get_error_codes(cls):
@@ -103,6 +110,12 @@ class Check389dsReplicatsApp(object):
         self.bind_dn = None
         self.bind_pw = None
         self.status_code = 0
+        self.ldap_use_ssl = self.default_ldap_use_ssl
+        self.ldap_port = self.default_ldap_port
+        if self.ldap_use_ssl:
+            self.ldap_port = self.default_ldap_port_ssl
+
+        self.ldap = None
 
         if base_dir:
             self.base_dir = base_dir
@@ -111,6 +124,18 @@ class Check389dsReplicatsApp(object):
 
         self.init_arg_parser()
         self.perform_arg_parser()
+        self.init_logging()
+
+        if self.verbose > 5:
+            set_library_log_detail_level(EXTENDED)
+        elif self.verbose > 4:
+            set_library_log_detail_level(NETWORK)
+        elif self.verbose > 3:
+            set_library_log_detail_level(PROTOCOL)
+        elif self.verbose > 2:
+            set_library_log_detail_level(BASIC)
+        else:
+            set_library_log_detail_level(ERROR)
 
         self.initialized = True
 
@@ -279,9 +304,23 @@ class Check389dsReplicatsApp(object):
 
         ldap_group = self.arg_parser.add_argument_group('LDAP options')
 
+        # Connection stuff
         ldap_group.add_argument(
             '-H', '--host', dest='host', required=True,
             help="The fqdn or address of the host to monitor."
+        )
+
+        ldap_group.add_argument(
+            '-P', '--port', dest="port", type=int,
+            help=("The used TCP/UDP port number when connecting to the LDAP server. "
+                "Defaults to {pnssl}, if using ldap://, and to {pssl}, if "
+                "using ldaps://.").format(
+                    pnssl=self.default_ldap_port, pssl=self.default_ldap_port_ssl),
+        )
+
+        ldap_group.add_argument(
+            '-S', '--ssl', dest='ssl', action="store_true",
+            help="Using ldaps:// instead of ldap://."
         )
 
         ldap_group.add_argument(
@@ -289,6 +328,7 @@ class Check389dsReplicatsApp(object):
             help="The DN of the user to use to connect to the LDAP server.",
         )
 
+        # Password stuff
         pwgroup = ldap_group.add_mutually_exclusive_group(required=True)
 
         pwgroup.add_argument(
@@ -340,6 +380,15 @@ class Check389dsReplicatsApp(object):
         self.host = self.args.host
         self.bind_dn = self.args.bind_dn
 
+        if self.args.ssl:
+            self.ldap_use_ssl = True
+        if self.args.port:
+            self.ldap_port = self.args.port
+        elif self.ldap_use_ssl:
+            self.ldap_port = self.default_ldap_port_ssl
+        else:
+            self.ldap_port = self.default_ldap_port
+
         if self.args.password:
             self.bind_pw = self.args.password
         elif self.args.password_file:
@@ -388,12 +437,60 @@ class Check389dsReplicatsApp(object):
 
         return pw
 
+    # -------------------------------------------------------------------------
+    def init_logging(self):
+        """
+        Initialize the logger object.
+        It creates a colored loghandler with all output to STDERR.
+        Maybe overridden in descendant classes.
+
+        @return: None
+        """
+
+        log_level = logging.INFO
+        if self.verbose:
+            log_level = logging.DEBUG
+
+        root_logger = logging.getLogger()
+        root_logger.setLevel(log_level)
+
+        # create formatter
+        format_str = ''
+        if self.verbose:
+            format_str = '[%(asctime)s]: '
+        format_str += self.appname + ': '
+        if self.verbose:
+            if self.verbose > 1:
+                format_str += '%(name)s(%(lineno)d) %(funcName)s() '
+            else:
+                format_str += '%(name)s '
+        format_str += '%(levelname)s - %(message)s'
+        formatter = logging.Formatter(format_str)
+
+        # create log handler for console output
+        lh_console = logging.StreamHandler(sys.stderr)
+        lh_console.setLevel(log_level)
+        lh_console.setFormatter(formatter)
+
+        root_logger.addHandler(lh_console)
+
+        return
+
+    # -------------------------------------------------------------------------
+    def __call__(self):
+        return self.run()
+
+    # -------------------------------------------------------------------------
+    def run(self):
+
+        LOG.debug("And here wo go ...")
 
 # =============================================================================
 
 app = Check389dsReplicatsApp()
 if app.verbose:
     print(app)
+app()
 
 app.nagios_exit(3, 'wtf?!?')
 
