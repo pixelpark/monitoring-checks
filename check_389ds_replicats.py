@@ -10,8 +10,13 @@ import re
 import pprint
 import pathlib
 import datetime
+import traceback
+import json
 
 from ldap3 import Server, Connection, Reader, ObjectDef
+from ldap3 import IP_V4_PREFERRED, ROUND_ROBIN, AUTO_BIND_NONE, ALL_ATTRIBUTES
+from ldap3 import SUBTREE
+from ldap3.core.exceptions import LDAPPasswordIsMandatoryError
 from ldap3.utils.log import set_library_log_detail_level, ERROR, BASIC, PROTOCOL, NETWORK, EXTENDED
 
 if sys.version_info[0] != 3:
@@ -30,7 +35,7 @@ LOG = logging.getLogger(__name__)
 
 __author__ = 'Frank Brehm <frank@brehm-online.com>'
 __copyright__ = '(C) 2021 by Frank Brehm, Berlin'
-__version__ = '0.2.0'
+__version__ = '0.3.0'
 
 
 # =============================================================================
@@ -73,6 +78,7 @@ class Check389dsReplicatsApp(object):
     default_ldap_port = 389
     default_ldap_port_ssl = 636
     default_ldap_use_ssl = False
+    default_timeout = 30
 
     default_ldap_base_dn = 'cn=config'
 
@@ -109,11 +115,14 @@ class Check389dsReplicatsApp(object):
         self.host  = None
         self.bind_dn = None
         self.bind_pw = None
-        self.status_code = 0
+        self.status_code = 3
+        self.status_msg = 'wtf?!?'
         self.ldap_use_ssl = self.default_ldap_use_ssl
         self.ldap_port = self.default_ldap_port
         if self.ldap_use_ssl:
             self.ldap_port = self.default_ldap_port_ssl
+        self.ldap_timeout = self.default_timeout
+        self.ldap_base_dn = self.default_ldap_base_dn
 
         self.ldap = None
 
@@ -324,6 +333,12 @@ class Check389dsReplicatsApp(object):
         )
 
         ldap_group.add_argument(
+            '-T', '--timeout', dest="timeout", type=int,
+            help=("The timeout in seconds for all LDAP operations. "
+                "Default: {} seconds.").format(self.ldap_timeout),
+        )
+
+        ldap_group.add_argument(
             '-D', '--bind-dn', dest='bind_dn', required=True,
             help="The DN of the user to use to connect to the LDAP server.",
         )
@@ -388,6 +403,8 @@ class Check389dsReplicatsApp(object):
             self.ldap_port = self.default_ldap_port_ssl
         else:
             self.ldap_port = self.default_ldap_port
+        if self.args.timeout:
+            self.ldap_timeout = self.args.timeout
 
         if self.args.password:
             self.bind_pw = self.args.password
@@ -481,9 +498,151 @@ class Check389dsReplicatsApp(object):
         return self.run()
 
     # -------------------------------------------------------------------------
+    def init_ldap(self):
+
+        # Init LDAP Server object
+        ldap_server = Server(
+            self.host, port=self.ldap_port, use_ssl=self.ldap_use_ssl,
+            mode=IP_V4_PREFERRED, connect_timeout=self.ldap_timeout)
+
+        # Init LDAP connection object
+        self.ldap = Connection(
+            ldap_server, user=self.bind_dn, password=self.bind_pw,
+            auto_bind=AUTO_BIND_NONE, lazy=True, auto_range=True
+        )
+
+        if self.verbose > 2:
+            LOG.debug("LDAP connection: {}".format(pp(self.ldap)))
+
+    # -------------------------------------------------------------------------
+    def pre_run(self):
+
+        self.init_ldap()
+
+        LOG.debug("Binding local address for LDAP requests ...")
+        try:
+            self.ldap.bind()
+        except LDAPPasswordIsMandatoryError as e:
+            msg = "Please provide a password - " + str(e)
+            self.handle_error(msg, e.__class__.__name__)
+            self.exit(1)
+
+    # -------------------------------------------------------------------------
+    def ldap_search(self, obj_classes=None, query_filter='', dn=None, scope=SUBTREE, attributes=ALL_ATTRIBUTES):
+
+        if not obj_classes:
+            obj_classes = ['*']
+        elif not isinstance(obj_classes, list):
+            obj_classes = [obj_classes]
+
+        oc_filter_list = []
+        for oc in obj_classes:
+            oc_filter_list.append('(objectClass={})'.format(oc))
+        oc_filter = ''
+        if len(oc_filter_list) == 1:
+            oc_filter = oc_filter_list[0]
+        else:
+            oc_filter = '(|' + ''.join(oc_filter_list) + ')'
+
+        used_filter = oc_filter
+        if query_filter:
+            used_filter = '(& ' + oc_filter + ' ' + query_filter + ' )'
+
+        if dn is None:
+            dn = self.ldap_base_dn
+
+        if self.verbose > 1:
+            msg = 'Searching:\n'
+            msg += '  Filter:      {}\n'.format(used_filter)
+            msg += '  Search base: {}\n'.format(dn)
+            msg += '  Attributes:  {}'.format(pp(attributes))
+            LOG.debug(msg)
+
+        self.ldap.search(dn, used_filter, search_scope=scope, attributes=attributes)
+        #entries = self.ldap.entries
+        entries = []
+        for entry in self.ldap.entries:
+            e = {}
+            e['entry_dn'] = entry.entry_dn
+            for attr in entry:
+                key = attr.key
+                if key.lower() == 'objectclass':
+                    e['objectClass'] = attr.values
+                else:
+                    e[key] = attr.values
+            entries.append(e)
+
+        if self.verbose > 2:
+            LOG.debug("Found entries:\n{}".format(pp(entries)))
+
+        return entries
+
+    # -------------------------------------------------------------------------
+    def post_run(self):
+        """
+        Dummy function to run after the main routine.
+        Could be overwritten by descendant classes.
+
+        """
+
+        if self.verbose > 1:
+            LOG.debug("executing post_run() ...")
+
+        if self.ldap:
+            LOG.debug("Unbinding from the LDAP servers ...")
+            self.ldap.unbind()
+        self.ldap = None
+
+    # -------------------------------------------------------------------------
+    def explore(self):
+
+        LOG.debug("Trying to explore the state of the application agreements ...")
+
+        agreement_class = "nsDS5ReplicationAgreement"
+        entries = self.ldap_search(obj_classes=agreement_class, attributes=ALL_ATTRIBUTES)
+
+        results = []
+
+        for entry in entries:
+            e = {}
+            for key in entry:
+                if key.lower() == 'nsds5replicalastupdatestatusjson':
+                    data = []
+                    for val in entry[key]:
+                        data.append(json.loads(val))
+                    e['last_update_status_data'] = data
+                elif key.lower() == 'nsds5replicahost':
+                    e['replica_host'] = entry[key]
+                elif key.lower() == 'nsds5replicalastupdatestatus':
+                    e['last_update_status'] = entry[key]
+                elif key.lower() == 'nsds5replicalastupdatestart':
+                    e['last_update_start'] = entry[key]
+                elif key.lower() == 'nsds5replicalastupdateend':
+                    e['last_update_end'] = entry[key]
+            results.append(e)
+
+        if self.verbose > 1:
+            LOG.debug("Result of searching:\n{}".format(pp(results)))
+
+    # -------------------------------------------------------------------------
     def run(self):
 
         LOG.debug("And here wo go ...")
+
+        self.pre_run()
+
+        try:
+            self.explore()
+        except Exception as e:
+            self.handle_error(str(e), e.__class__.__name__, True)
+            msg = "Got a {cl} - {e}".format(cl=e.__class__.__name__, e=e)
+            app.nagios_exit(3, msg)
+        finally:
+            self.post_run()
+
+        LOG.debug("And here we end.")
+        app.nagios_exit(self.status_code, self.status_msg)
+
 
 # =============================================================================
 
@@ -492,6 +651,5 @@ if app.verbose:
     print(app)
 app()
 
-app.nagios_exit(3, 'wtf?!?')
 
 # vim: tabstop=4 expandtab shiftwidth=4 softtabstop=4
