@@ -523,10 +523,8 @@ class Check389dsReplicatsApp(object):
     # -------------------------------------------------------------------------
     def init_ldap(self):
 
-        if self.ldap_use_ssl:
-            tls = Tls(validate=self.ldap_ssl_verify)
-        else:
-            tls = Tls(validate=CERT_NONE)
+        # Init Tls object
+        tls = Tls(validate=self.ldap_ssl_verify)
 
         # Init LDAP Server object
         ldap_server = Server(
