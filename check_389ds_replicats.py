@@ -23,8 +23,10 @@ import pathlib
 import datetime
 import traceback
 import json
+import ssl
 
-from ldap3 import Server, Connection, Reader, ObjectDef
+from ssl import CERT_REQUIRED, CERT_NONE
+from ldap3 import Tls, Server, Connection, Reader, ObjectDef
 from ldap3 import IP_V4_PREFERRED, ROUND_ROBIN, AUTO_BIND_NONE, ALL_ATTRIBUTES
 from ldap3 import SUBTREE
 from ldap3.core.exceptions import LDAPPasswordIsMandatoryError
@@ -89,6 +91,7 @@ class Check389dsReplicatsApp(object):
     default_ldap_port = 389
     default_ldap_port_ssl = 636
     default_ldap_use_ssl = False
+    default_ldap_ssl_verify = CERT_REQUIRED
     default_timeout = 30
 
     default_ldap_base_dn = 'cn=config'
@@ -129,6 +132,7 @@ class Check389dsReplicatsApp(object):
         self.status_code = 3
         self.status_msg = 'wtf?!?'
         self.ldap_use_ssl = self.default_ldap_use_ssl
+        self.ldap_ssl_verify = self.default_ldap_ssl_verify
         self.ldap_port = self.default_ldap_port
         if self.ldap_use_ssl:
             self.ldap_port = self.default_ldap_port_ssl
@@ -344,6 +348,12 @@ class Check389dsReplicatsApp(object):
         )
 
         ldap_group.add_argument(
+            '--no-ssl-verify', dest='ssl_no_verify', action="store_true",
+            help=("Disable the cert verify if ssl has been enabled. "
+                "Default is to require the cert verify."),
+        )
+
+        ldap_group.add_argument(
             '-T', '--timeout', dest="timeout", type=int,
             help=("The timeout in seconds for all LDAP operations. "
                 "Default: {} seconds.").format(self.ldap_timeout),
@@ -414,6 +424,8 @@ class Check389dsReplicatsApp(object):
             self.ldap_port = self.default_ldap_port_ssl
         else:
             self.ldap_port = self.default_ldap_port
+        if self.args.ssl_no_verify:
+            self.ldap_ssl_verify = CERT_NONE
         if self.args.timeout:
             self.ldap_timeout = self.args.timeout
 
@@ -511,15 +523,21 @@ class Check389dsReplicatsApp(object):
     # -------------------------------------------------------------------------
     def init_ldap(self):
 
+        if self.ldap_use_ssl:
+            tls = Tls(validate=self.ldap_ssl_verify)
+        else:
+            tls = Tls(validate=CERT_NONE)
+
         # Init LDAP Server object
         ldap_server = Server(
             self.host, port=self.ldap_port, use_ssl=self.ldap_use_ssl,
-            mode=IP_V4_PREFERRED, connect_timeout=self.ldap_timeout)
+            tls = tls, mode=IP_V4_PREFERRED, connect_timeout=self.ldap_timeout)
 
         # Init LDAP connection object
         self.ldap = Connection(
             ldap_server, user=self.bind_dn, password=self.bind_pw,
-            auto_bind=AUTO_BIND_NONE, lazy=True, auto_range=True
+            auto_bind=AUTO_BIND_NONE, lazy=True, auto_range=True,
+            raise_exceptions=True
         )
 
         if self.verbose > 2:
