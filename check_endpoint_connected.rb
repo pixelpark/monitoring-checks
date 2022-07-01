@@ -7,10 +7,12 @@ require 'net/http'
 require 'net/https'
 require 'uri'
 require 'json'
+require 'yaml'
 require 'optparse'
 
 @options = {
-  api_url: 'https://localhost:5665/v1/objects/endpoints'
+  api_url: 'https://localhost:5665/v1/objects/endpoints',
+  timeout: 10
 }
 
 usage = [
@@ -24,32 +26,59 @@ usage = [
 OptionParser.new do |opts|
   opts.banner = usage.join("\n")
 
-  opts.on('-a', '--api-url=API_URL')   { |api_url|  @options[:api_url]  = api_url }
-  opts.on('-e', '--endpoint=ENDPOINT') { |endpoint| @options[:endpoint] = endpoint }
-  opts.on('-p', '--password=API_PASSWORD') { |password| @options[:password] = password }
-  opts.on('-u', '--user=API_USER')         { |user|     @options[:user]     = user }
+  opts.on('-a', '--api-url=API_URL')       { |api_url|     @options[:api_url]     = api_url }
+  opts.on('-e', '--endpoint=ENDPOINT')     { |endpoint|    @options[:endpoint]    = endpoint }
+  opts.on('-p', '--password=API_PASSWORD') { |password|    @options[:password]    = password }
+  opts.on('-u', '--user=API_USER')         { |user|        @options[:user]        = user }
+  opts.on('--config_yaml=PATH')            { |config_yaml| @options[:config_yaml] = config_yaml }
+  opts.on('--timeout=SECONDS')             { |timeout|     @options[:timeout]     = timeout }
 end.parse!
 
-get_endpoint_uri = URI.parse(@options[:api_url])
+expected_keys = %i[api_url timeout]
 
-get_endpoint = Net::HTTP.new(get_endpoint_uri.host, get_endpoint_uri.port)
-get_endpoint.use_ssl = true
-get_endpoint.verify_mode = OpenSSL::SSL::VERIFY_NONE
+raise 'Missing parameters - try --help' if (@options.keys - expected_keys).empty?
+raise 'Use --password or --config_yaml, but not both!' if @options.key?(:password) && @options.key?(:config_yaml)
 
-get_endpoint_req = Net::HTTP::Get.new("#{get_endpoint_uri.path}/#{@options[:endpoint]}")
-get_endpoint_req.basic_auth(@options[:user], @options[:password])
+if @options.key?(:config_yaml)
+  config   = YAML.load_file(@options[:config_yaml])
+  user     = config['user']
+  password = config['password']
+  api_url  = config['api_url']
+  endpoint = config['endpoint']
+  timeout  = config['timeout']
+else
+  user     = @options[:user]
+  password = @options[:password]
+  api_url  = @options[:api_url]
+  endpoint = @options[:endpoint]
+  timeout  = @options[:timeout]
+end
 
-get_endpoint_resp = get_endpoint.request(get_endpoint_req)
-raise StandardError, "ERROR #{get_endpoint_resp.code} - #{get_endpoint_resp.message}" unless get_endpoint_resp.code == '200'
-
-get_endpoint_result = JSON.parse(get_endpoint_resp.body)
+uri  = URI.parse(api_url)
+http = Net::HTTP.new(uri.host, uri.port)
+http.use_ssl      = true
+http.verify_mode  = OpenSSL::SSL::VERIFY_NONE
+http.open_timeout = timeout
+request = Net::HTTP::Get.new("#{uri.path}/#{endpoint}")
+request.basic_auth(user, password)
+response = http.request(request)
 
 all_result_list = []
 not_connected_list = []
 
-get_endpoint_result['results'].each do |result|
-  not_connected_list << result['attrs']['name'] unless result['attrs']['connected']
-  all_result_list << result['attrs']['connected']
+case response.code
+when '404'
+  all_result_list << false
+  not_connected_list << endpoint
+when '200'
+  get_endpoint_result = JSON.parse(response.body)
+
+  get_endpoint_result['results'].each do |result|
+    all_result_list << result['attrs']['connected']
+    not_connected_list << result['attrs']['name'] unless result['attrs']['connected']
+  end
+else
+  raise StandardError, "ERROR #{response.code} - #{response.message}"
 end
 
 # check if all endpoints report connect = true
