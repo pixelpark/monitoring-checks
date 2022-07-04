@@ -1,0 +1,7 @@
+---
+user: 'a_user'
+password: 'password'
+api_url: 'https://localhost:5665/v1/objects/endpoints'
+# do not set this if you wanna see all not connected endpoints
+endpoint: 'endpoint.example.com'
+timeout: 10
