@@ -24,6 +24,7 @@ end
 OptionParser.new do |opts|
   opts.on("-n NODE") { |node| @options[:node] = node }
   opts.on("-p PUPPETBOARD") { |puppetboard| @options[:puppetboard] = puppetboard }
+  opts.on("-t TTLSECONDS", Integer) { |ttl| @options[:ttl] = ttl }
 end.parse!
 
 puppet_node        = api_call(query="pdb/query/v4/nodes/#{@options[:node]}")
@@ -44,7 +45,13 @@ if last_catalog.nil? || latest_report_hash.nil?
   message = error unless error.nil?
   status  = [3, 'UNKNOWN']
 else
-  if time_dif > time_24h
+  if @options.key?(:ttl) && time_dif > ( @options[:ttl] * 0.9 )
+    mm, ss = (@options[:ttl] - time_dif).divmod(60)
+    hh, mm = mm.divmod(60)
+    dd, hh = hh.divmod(24)
+    message = "Node will be expire in #{dd} days, #{hh} hours, #{ss} seconds because Puppet hadn't run and a node-ttl of #{@options[:ttl]}s"
+    status  = [2, 'CRITICAL']
+  elsif time_dif > time_24h
     message = "Puppet hasn't run in 24h! - Last status: #{last_status}"
     message = "Puppet hasn't run in 24h! - Last status: #{last_status}\nPlease check https://#{@options[:puppetboard]}/node/#{@options[:node]}" if last_status == "failed"
     status  = [1, 'WARNING'] if last_status == "unchanged"
