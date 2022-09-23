@@ -21,10 +21,15 @@ def api_call(query, opt = {})
     require 'openssl/x509'
     require 'openssl/pkey'
 
-    http.ca_file = opt[:ca] if opt.has_key?(:ca)
+    if opt.has_key?(:ca)
+      cert_store = OpenSSL::X509::Store.new
+      cert_store.add_file(opt[:ca])
+      cert_store.add_crl(OpenSSL::X509::CRL.new(File.read(opt[:crl]))) if opt.has_key?(:crl)
+      http.cert_store = cert_store
+    end
     if opt.has_key?(:cert) and opt.has_key?(:key)
       http.cert = OpenSSL::X509::Certificate.new(File.read(opt[:cert]))
-      http.key  = OpenSSL::PKey::RSA.new(File.read(opt[:key]))
+      http.key  = OpenSSL::PKey.read(File.read(opt[:key]))
     end
   end
 
@@ -42,16 +47,17 @@ OptionParser.new do |opts|
   opts.on('--ssl', 'Enable https usage.') { |ssl| @http_opt[:ssl] = true }
   opts.on('--host HOST', String) { |host| @http_opt[:host] = host }
   opts.on('--port PORT', Integer, 'Used port for connection to puppetdb. Default is 8080.','When ssl is enabled the default is 8081') { |port| @http_opt[:port] = port }
-  opts.on('--cert CERT', String, 'Path of the client certificate file that will be used for the connection.') { |cert| @http_opt[:cert] = cert }
-  opts.on('--key KEY', String, 'Path of the key file of the client certificate that will be used for the connection.') { |key| @http_opt[:key] = key }
-  opts.on('--ca CA', String, 'Path of the ca file that will be used for the connection.') { |ca| @http_opt[:ca] = ca }
+  opts.on('--cert FILE', String, 'Path of the client certificate file that will be used for the connection.') { |cert| @http_opt[:cert] = cert }
+  opts.on('--key FILE', String, 'Path of the key file of the client certificate that will be used for the connection.') { |key| @http_opt[:key] = key }
+  opts.on('--ca FILE', String, 'Path of the ca file that will be used to verify the connection.') { |ca| @http_opt[:ca] = ca }
+  opts.on('--crl FILE', String, 'Path of the crl file that will be used to verify the connection.') { |crl| @http_opt[:crl] = crl }
   opts.on('-h', '--help', 'Prints this help') do
     puts opts
     exit
   end
 end.parse!
 
-puppet_node        = api_call(query="pdb/query/v4/nodes/#{@options[:node]}", @http_opt)
+puppet_node        = api_call(query="pdb/query/v4/nodes/#{@options[:node]}", opt=@http_opt)
 latest_report_hash = puppet_node['latest_report_hash']   || nil # do we have a report for this node?
 last_catalog       = puppet_node['catalog_timestamp']    || nil # when was the last catalog for this node compiled?
 last_status        = puppet_node['latest_report_status'] || nil # what was the last status from this node?
