@@ -11,23 +11,23 @@ require 'time'
 require 'date'
 
 def api_call(query, opt = {})
-  protocol     = opt.has_key?(:ssl) ? 'https' : 'http'
+  protocol     = opt.key?(:ssl) ? 'https' : 'http'
   host         = opt[:host] || 'localhost'
-  port         = opt[:port] || opt.has_key?(:ssl) ? 8081 : 8080
+  port         = opt[:port] || opt.key?(:ssl) ? 8081 : 8080
   uri          = URI("#{protocol}://#{host}:#{port}/#{query}")
   http         = Net::HTTP.new(uri.host, uri.port)
-  http.use_ssl = opt.has_key?(:ssl)
+  http.use_ssl = opt.key?(:ssl)
   if http.use_ssl?
     require 'openssl/x509'
     require 'openssl/pkey'
 
-    if opt.has_key?(:ca)
+    if opt.key?(:ca)
       cert_store = OpenSSL::X509::Store.new
       cert_store.add_file(opt[:ca])
-      cert_store.add_crl(OpenSSL::X509::CRL.new(File.read(opt[:crl]))) if opt.has_key?(:crl)
+      cert_store.add_crl(OpenSSL::X509::CRL.new(File.read(opt[:crl]))) if opt.key?(:crl)
       http.cert_store = cert_store
     end
-    if opt.has_key?(:cert) and opt.has_key?(:key)
+    if opt.key?(:cert) && opt.key?(:key)
       http.cert = OpenSSL::X509::Certificate.new(File.read(opt[:cert]))
       http.key  = OpenSSL::PKey.read(File.read(opt[:key]))
     end
@@ -42,10 +42,10 @@ end
 OptionParser.new do |opts|
   opts.on('-n NODE', String, 'Node that will be searched for') { |node| @options[:node] = node }
   opts.on('-p PUPPETBOARD', String, 'FQDN of the puppetboard used for the link in the return message.') { |puppetboard| @options[:puppetboard] = puppetboard }
-  opts.on('-t TTLSECONDS', Integer, 'Time until the node will be marked as expired.','Check will go critical when 90% of the time has reached.') { |ttl| @options[:ttl] = ttl }
-  opts.on('--ssl', 'Enable https usage.') { |ssl| @options[:ssl] = true }
+  opts.on('-t TTLSECONDS', Integer, 'Time until the node will be marked as expired.', 'Check will go critical when 90% of the time has reached.') { |ttl| @options[:ttl] = ttl }
+  opts.on('--ssl', 'Enable https usage.') { |ssl| @options[:ssl] = ssl.nil? ? true : ssl }
   opts.on('--host HOST', String) { |host| @options[:host] = host }
-  opts.on('--port PORT', Integer, 'Used port for connection to puppetdb. Default is 8080.','When ssl is enabled the default is 8081') { |port| @options[:port] = port }
+  opts.on('--port PORT', Integer, 'Used port for connection to puppetdb. Default is 8080.', 'When ssl is enabled the default is 8081') { |port| @options[:port] = port }
   opts.on('--cert FILE', String, 'Path of the client certificate file that will be used for the connection.') { |cert| @options[:cert] = cert }
   opts.on('--key FILE', String, 'Path of the key file of the client certificate that will be used for the connection.') { |key| @options[:key] = key }
   opts.on('--ca FILE', String, 'Path of the ca file that will be used to verify the connection.') { |ca| @options[:ca] = ca }
@@ -56,7 +56,7 @@ OptionParser.new do |opts|
   end
 end.parse!
 
-puppet_node        = api_call(query = "pdb/query/v4/nodes/#{@options[:node]}", opt = @options)
+puppet_node        = api_call(query: "pdb/query/v4/nodes/#{@options[:node]}", opt: @options)
 latest_report_hash = puppet_node['latest_report_hash']   || nil # do we have a report for this node?
 last_catalog       = puppet_node['catalog_timestamp']    || nil # when was the last catalog for this node compiled?
 last_status        = puppet_node['latest_report_status'] || nil # what was the last status from this node?
