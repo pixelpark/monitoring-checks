@@ -5,18 +5,18 @@
 
 require 'optparse'
 
-available       = %x(/opt/puppetlabs/puppet/bin/facter memory.system.available).strip!
-available_bytes = %x(/opt/puppetlabs/puppet/bin/facter memory.system.available_bytes).strip!
-used            = %x(/opt/puppetlabs/puppet/bin/facter memory.system.used).strip!
-used_bytes      = %x(/opt/puppetlabs/puppet/bin/facter memory.system.used_bytes).strip!
-total           = %x(/opt/puppetlabs/puppet/bin/facter memory.system.total).strip!
-total_bytes     = %x(/opt/puppetlabs/puppet/bin/facter memory.system.total_bytes).strip!
+available       = `/opt/puppetlabs/puppet/bin/facter memory.system.available`.strip!
+available_bytes = `/opt/puppetlabs/puppet/bin/facter memory.system.available_bytes`.strip!
+used            = `/opt/puppetlabs/puppet/bin/facter memory.system.used`.strip!
+used_bytes      = `/opt/puppetlabs/puppet/bin/facter memory.system.used_bytes`.strip!
+total           = `/opt/puppetlabs/puppet/bin/facter memory.system.total`.strip!
+total_bytes     = `/opt/puppetlabs/puppet/bin/facter memory.system.total_bytes`.strip!
 
 @options = {}
 
 OptionParser.new do |opts|
-  opts.on("-w WARNING")  { |warning| @options[:warning] = warning }
-  opts.on("-c CRITICAL") { |critical| @options[:critical] = critical }
+  opts.on('-w WARNING')  { |warning| @options[:warning] = warning }
+  opts.on('-c CRITICAL') { |critical| @options[:critical] = critical }
 end.parse!
 
 warn = @options[:warning].to_f
