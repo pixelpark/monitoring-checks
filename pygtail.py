@@ -39,7 +39,7 @@ PY3 = sys.version_info[0] == 3
 if PY3:
     text_type = str
 else:
-    text_type = unicode
+    text_type = unicode                             # noqa
 
 
 # ==============================================================================
@@ -134,8 +134,8 @@ class Pygtail(object):
 
     # --------------------------------------------------------------------------
     def __init__(self, filename, offset_file=None, paranoid=False, copytruncate=True,
-                 every_n=0, on_update=False, read_from_end=False, log_patterns=None, full_lines=False,
-                 save_on_end=True, encoding=None):
+                 every_n=0, on_update=False, read_from_end=False, log_patterns=None,
+                 full_lines=False, save_on_end=True, encoding=None):
         self.filename = filename
         self.paranoid = paranoid
         self.every_n = every_n
@@ -166,9 +166,11 @@ class Pygtail(object):
                 # might have been rotated.
                 # Look for the rotated file and process that if we find it.
                 self.rotated_logfile = self._determine_rotated_logfile()
-                # If copytruncate is enabled and we can't find the rotated logfile, all we can do is reset.
+                # If copytruncate is enabled and we can't find the rotated logfile,
+                # all we can do is reset.
                 if self.copytruncate and self.rotated_logfile is None:
-                    sys.stderr.write("[pygtail] [WARN] log file was rotated to unknown location. Resetting.\n")
+                    msg = "[pygtail] [WARN] log file was rotated to unknown location. Resetting."
+                    sys.stderr.write(msg + "\n")
                     self.offset = 0
                     self.update_offset_file()
 
@@ -190,8 +192,8 @@ class Pygtail(object):
             line = self._get_next_line()
         except StopIteration:
             # we've reached the end of the file; if we're processing the
-            # rotated log file or the file has been renamed, we can continue with the actual file; otherwise
-            # update the offset file
+            # rotated log file or the file has been renamed, we can continue with the actual file;
+            # otherwise update the offset file
             if self._is_new_file():
                 self.rotated_logfile = None
                 self.fh.close()
@@ -315,8 +317,8 @@ class Pygtail(object):
             if stat(rotated_filename).st_ino == self.offset_file_inode:
                 return rotated_filename
 
-            # if the inode hasn't changed, then the file shrank; this is expected with copytruncate,
-            # otherwise print a warning
+            # if the inode hasn't changed, then the file shrank; this is expected with
+            # copytruncate, otherwise print a warning
             if stat(self.filename).st_ino == self.offset_file_inode:
                 if self.copytruncate:
                     return rotated_filename
@@ -336,8 +338,8 @@ class Pygtail(object):
         """
         # savelog(8)
         candidate = "%s.0" % self.filename
-        if (exists(candidate) and exists("%s.1.gz" % self.filename) and
-            (stat(candidate).st_mtime > stat("%s.1.gz" % self.filename).st_mtime)):
+        if exists(candidate) and exists("%s.1.gz" % self.filename) and \
+                (stat(candidate).st_mtime > stat("%s.1.gz" % self.filename).st_mtime):
             return candidate
 
         # logrotate(8)
@@ -357,9 +359,11 @@ class Pygtail(object):
             # logrotate dateext rotation scheme - `dateformat -%Y%m%d` + without `delaycompress`
             "%s-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].gz",
             # logrotate dateext rotation scheme - `dateformat -%Y%m%d-%s` + with `delaycompress`
-            "%s-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]",
+            "%s-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-"
+            "[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]",
             # logrotate dateext rotation scheme - `dateformat -%Y%m%d-%s` + without `delaycompress`
-            "%s-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].gz",
+            "%s-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-"
+            "[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].gz",
             # for TimedRotatingFileHandler
             "%s.[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]",
         ]
@@ -382,8 +386,8 @@ class Pygtail(object):
     def _is_new_file(self):
         # Processing rotated logfile or at the end of current file which has been renamed
         return self.rotated_logfile or \
-               self._filehandle().tell() == fstat(self._filehandle().fileno()).st_size and \
-               fstat(self._filehandle().fileno()).st_ino != stat(self.filename).st_ino
+            self._filehandle().tell() == fstat(self._filehandle().fileno()).st_size and \
+            fstat(self._filehandle().fileno()).st_ino != stat(self.filename).st_ino
 
     # --------------------------------------------------------------------------
     def _get_next_line(self):
