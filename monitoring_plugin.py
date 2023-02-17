@@ -34,6 +34,9 @@ if sys.version_info[1] < 5:
 
 LOG = logging.getLogger(__name__)
 
+DEFAULT_TERMINAL_WIDTH = 99
+DEFAULT_TERMINAL_HEIGHT = 40
+
 __author__ = 'Frank Brehm <frank@brehm-online.com>'
 __copyright__ = '(C) 2023 by Frank Brehm, Berlin'
 __version__ = '0.2.0'
