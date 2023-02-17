@@ -36,7 +36,7 @@ LOG = logging.getLogger(__name__)
 
 __author__ = 'Frank Brehm <frank@brehm-online.com>'
 __copyright__ = '(C) 2023 by Frank Brehm, Berlin'
-__version__ = '0.1.0'
+__version__ = '0.2.0'
 
 
 # =============================================================================
@@ -1144,6 +1144,15 @@ class MonitoringPlugin(object):
         self._verbose = int(verbose)
         self._initialized = False
         self._base_dir = None
+        self._status = 3
+        self._status_msg = None
+        self.perf_data = []
+
+        self.messages = {
+            'warning': [],
+            'critical': [],
+            'ok': [],
+        }
 
         if base_dir:
             self.base_dir = Path(base_dir)
@@ -1278,6 +1287,66 @@ class MonitoringPlugin(object):
         """Get a short text describing the application."""
         return self._description
 
+    # -----------------------------------------------------------
+    @property
+    def status(self):
+        """The current numeric status of the plugin."""
+        return self._status
+
+    @status.setter
+    def status(self, value):
+        val = int(value)
+        if val < 0 or val > 3:
+            raise MonitoringException(i
+                "Invalid state {!r} given - mus be >= 0 an <= 4.".format(value))
+        self._status = val
+
+    # -----------------------------------------------------------
+    @property
+    def status_ok(self):
+        """The numeric value for an 'OK' status."""
+        return self.errors['OK']
+
+    # -----------------------------------------------------------
+    @property
+    def status_warning(self):
+        """The numeric value for an 'WARNING' status."""
+        return self.errors['WARNING']
+
+    # -----------------------------------------------------------
+    @property
+    def status_critical(self):
+        """The numeric value for an 'CRITICAL' status."""
+        return self.errors['CRITICAL']
+
+    # -----------------------------------------------------------
+    @property
+    def status_unknown(self):
+        """The numeric value for an 'UNKNOWN' status."""
+        return self.errors['UNKNOWN']
+
+    # -----------------------------------------------------------
+    @property
+    def status_dependent(self):
+        """The numeric value for an 'DEPENDENT' status."""
+        return self.errors['DEPENDENT']
+
+    # -----------------------------------------------------------
+    @property
+    def status_msg(self):
+        """The status message to show on output."""
+        return self._status_msg
+
+    @status_msg.setter
+    def status_msg(self, value):
+        if value is None:
+            self._status_msg = None
+            return
+        val=str(value).strip()
+        if val:
+            self._status_msg = val
+        else:
+            self._status_msg = None
 
     # -------------------------------------------------------------------------
     def __str__(self):
@@ -1316,6 +1385,11 @@ class MonitoringPlugin(object):
         res['description'] = self.verbose
         res['initialized'] = self.initialized
         res['base_dir'] = self.base_dir
+        res['state'] = self.state
+        res['status_msg'] = self.status_msg
+        res['perf_data'] = []
+        for pdata in self.perf_data:
+            res['perf_data'].append(pdata.as_dict())
 
         return res
 
@@ -1385,6 +1459,42 @@ class MonitoringPlugin(object):
         pass
 
     # -------------------------------------------------------------------------
+    def add_perfdata(
+        self, label, value, uom=None, threshold=None, warning=None, critical=None,
+            min_data=None, max_data=None):
+        """
+        Adding a MonitoringPerformance object to self.perf_data.
+
+        @param label: the label of the performance data, mandantory
+        @type label: str
+        @param value: the value of the performance data, mandantory
+        @type value: Number
+        @param uom: the unit of measure
+        @type uom: str or None
+        @param threshold: an object for the warning and critical thresholds
+                          if set, it overrides the warning and critical parameters
+        @type threshold: MonitoringThreshold or None
+        @param warning: a range for the warning threshold,
+                        ignored, if threshold is given
+        @type warning: MonitoringRange, str, Number or None
+        @param critical: a range for the critical threshold,
+                        ignored, if threshold is given
+        @type critical: MonitoringRange, str, Number or None
+        @param min_data: the minimum data for performance output
+        @type min_data: Number or None
+        @param max_data: the maximum data for performance output
+        @type max_data: Number or None
+
+        """
+
+        pdata = MonitoringPerformance(
+            label=label, value=value, uom=uom, threshold=threshold,
+            warning=warning, critical=critical, min_data=min_data, max_data=max_data,
+        )
+
+        self.perf_data.append(pdata)
+
+    # -------------------------------------------------------------------------
     def nagios_exit(self, status_code, status_msg):
 
         if status_code not in self.error_codes:
@@ -1439,53 +1549,56 @@ class MonitoringPlugin(object):
         return
 
     # -------------------------------------------------------------------------
-    def exit(self, retval=-1, msg=None, trace=False):
-        """
-        Exit the current application.
+    def all_perfoutput(self):
+        """Generates a string with all formatted performance data."""
 
-        Universal method to call sys.exit(). If fake_exit is set, a
-        FakeExitError exception is raised instead (useful for unittests.)
+        if not self.perf_data:
+            return ''
 
-        @param retval: the return value to give back to theoperating system
-        @type retval: int
-        @param msg: a last message, which should be emitted before exit.
-        @type msg: str
-        @param trace: flag to output a stack trace before exiting
-        @type trace: bool
+        return ' '.join([x.perfoutput() for x in self.perf_data])
 
-        @return: None
 
-        """
-        retval = int(retval)
-        trace = bool(trace)
+    # -------------------------------------------------------------------------
+    def die(self, message, no_status_line=False):
+        """Exiting with status 'unknown' and without outputting performance data."""
 
-        root_logger = logging.getLogger()
-        has_handlers = False
-        if root_logger.handlers:
-            has_handlers = True
+        self.exit(self.status_unknown, message=message, no_status_line=no_status_line)
 
-        if msg:
-            if has_handlers:
-                if retval:
-                    LOG.error(msg)
-                else:
-                    LOG.info(msg)
-            if not has_handlers:
-                if hasattr(sys.stderr, 'buffer'):
-                    sys.stderr.buffer.write(str(msg) + "\n")
-                else:
-                    sys.stderr.write(str(msg) + "\n")
+    # -------------------------------------------------------------------------
+    def exit(self, status=None, message=None, no_status_line=False):
+        """Exit the current application."""
 
-        if trace:
-            if has_handlers:
-                if retval:
-                    LOG.error(traceback.format_exc())
-                else:
-                    LOG.info(traceback.format_exc())
+        if status is None:
+            status = self.status
+        else:
+            status = int(status)
+        code = self.error_codes[status]
+
+        if message is None:
+            message = self.status_msg
+        else:
+            if isinstance(message, list) or isinstance(message, tuple):
+                message = ' '.join(lambda x: str(x).strip(), message)
             else:
-                traceback.print_exc()
+                message = str(message).strip()
 
-        sys.exit(retval)
+        # Setup output
+        output = ''
+        if no_status_line:
+            if message:
+                output = message
+            else:
+                output = "[no message]"
+        else:
+            output = self.appname + " " + code
+            if message:
+                output += " - " + message
+            pdata = self.all_perfoutput()
+            if pdata:
+                output += " | " + pdata
+
+        print(output)
+        sys.exit(status)
 
     # -------------------------------------------------------------------------
     def pre_run(self):
@@ -1533,20 +1646,23 @@ class MonitoringPlugin(object):
 
         try:
             self.run()
+        except MonitoringException as e:
+            self.die(str(e), no_status_line=True)
         except Exception as e:
             self.handle_error(str(e), e.__class__.__name__, True)
-            self.exit_value = 99
-
-        if self.verbose > 1:
-            LOG.info(_("Ending."))
+            self.status = self.status_unknown
+            self.die(str(e), no_status_line=True)
 
         try:
             self.post_run()
+        except MonitoringException as e:
+            self.die(str(e), no_status_line=True)
         except Exception as e:
             self.handle_error(str(e), e.__class__.__name__, True)
-            self.exit_value = 97
+            self.status = self.status_unknown
+            self.die(str(e), no_status_line=True)
 
-        self.exit(self.exit_value)
+        self.exit()
 
     # -------------------------------------------------------------------------
     def post_run(self):
