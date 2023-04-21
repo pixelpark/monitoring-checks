@@ -187,12 +187,6 @@ class MonitoringObject(object):
 
     It defines some usefull class properties.
     """
-    # nested metaclass definition
-    class __metaclass__(type):
-        def __new__(mcl, classname, bases, classdict):
-            cls = type.__new__(mcl, classname, bases, classdict)  # creates class
-            cls.static_init()  # call the classmethod
-            return cls
 
     re_digit = re.compile(r'[\d~]')
     re_dot = re.compile(r'\.')
@@ -206,6 +200,12 @@ class MonitoringObject(object):
         'DEPENDENT': 4,
     }
     error_codes = {}
+
+    # -------------------------------------------------------------------------
+    @classmethod
+    def __new__(cls, *args, **kwargs):
+        cls.static_init()
+        return super(MonitoringObject, cls).__new__(*args, **kwargs)
 
     # -------------------------------------------------------------------------
     @classmethod
@@ -1652,13 +1652,13 @@ class MonitoringPlugin(MonitoringObject):
         """
         if not self.initialized:
             self.handle_error("The application is not completely initialized.", '', True)
-            self.exit(9)
+            self.exit(self.status_unknown)
 
         try:
             self.pre_run()
         except Exception as e:
             self.handle_error(str(e), e.__class__.__name__, True)
-            self.exit(98)
+            self.exit(self.status_unknown8)
 
         if not self.initialized:
             raise MonitoringException(
