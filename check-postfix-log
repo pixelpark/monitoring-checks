@@ -1,0 +1,20 @@
+#!/usr/bin/python3
+# -*- coding: utf-8 -*-
+#
+# Author: Frank Brehm <frank@brehm-online.com
+#         Berlin, Germany, 2023
+# Date:   2023-02-16
+#
+# This module provides a monitoring plugin for checking Postfix logfiles
+#
+from __future__ import print_function
+
+
+# Own modules
+
+from monitoring_plugin import MonitoringPlugin
+
+
+# =============================================================================
+
+# vim: tabstop=4 expandtab shiftwidth=4 softtabstop=4
