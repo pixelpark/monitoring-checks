@@ -23,6 +23,11 @@ from pathlib import Path
 
 from numbers import Number
 
+try:
+    from collections.abc import Sequence
+except ImportError:
+    from collections import Sequence
+
 if sys.version_info[0] != 3:
     print("This script is intended to use with Python3.", file=sys.stderr)
     print("You are using Python: {0}.{1}.{2}-{3}-{4}.\n".format(
@@ -35,9 +40,6 @@ if sys.version_info[1] < 6:
         *sys.version_info), file=sys.stderr)
     sys.exit(1)
 
-# Third party modules
-from fb_tools.common import to_bytes
-
 LOG = logging.getLogger(__name__)
 
 DEFAULT_TERMINAL_WIDTH = 99
@@ -45,7 +47,7 @@ DEFAULT_TERMINAL_HEIGHT = 40
 
 __author__ = 'Frank Brehm <frank@brehm-online.com>'
 __copyright__ = '(C) 2023 by Frank Brehm, Berlin'
-__version__ = '0.3.1'
+__version__ = '0.4.0'
 
 
 # =============================================================================
@@ -64,6 +66,65 @@ def pp(value, indent=4, width=None, depth=None):
     pretty_printer = pprint.PrettyPrinter(
         indent=indent, width=width, depth=depth)
     return pretty_printer.pformat(value)
+
+
+# =============================================================================
+def to_unicode(obj, encoding='utf-8'):
+    """Convert given value to unicode."""
+    do_decode = False
+    if isinstance(obj, (bytes, bytearray)):
+        do_decode = True
+
+    if do_decode:
+        obj = obj.decode(encoding)
+
+    return obj
+
+
+# =============================================================================
+def encode_or_bust(obj, encoding='utf-8'):
+    """Convert given value to a byte string withe the given encoding."""
+    do_encode = False
+    if isinstance(obj, str):
+        do_encode = True
+
+    if do_encode:
+        obj = obj.encode(encoding)
+
+    return obj
+
+
+# =============================================================================
+def to_utf8(obj):
+    """Convert given value to a utf-8 encoded byte string."""
+    return encode_or_bust(obj, 'utf-8')
+
+
+# =============================================================================
+def to_bytes(obj, encoding='utf-8'):
+    """Do the same as encode_or_bust()."""
+    return encode_or_bust(obj, encoding)
+
+
+# =============================================================================
+def to_str(obj, encoding='utf-8'):
+    """Transform he given string-like object into the str-type.
+
+    This will be done according to the current Python version.
+    """
+    return to_unicode(obj, encoding)
+
+
+# =============================================================================
+def is_sequence(arg):
+    """Return, whether the given value is a sequential object, but nat a str."""
+    if not isinstance(arg, Sequence):
+        return False
+
+    if hasattr(arg, "strip"):
+        return False
+
+    return True
 
 
 # =============================================================================
