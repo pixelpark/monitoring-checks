@@ -17,6 +17,7 @@ import shutil
 import traceback
 import datetime
 import re
+import pprint
 
 from pathlib import Path
 
@@ -35,8 +36,6 @@ if sys.version_info[1] < 6:
     sys.exit(1)
 
 # Third party modules
-import fb_tools
-
 from fb_tools.common import to_bytes
 
 LOG = logging.getLogger(__name__)
@@ -46,7 +45,7 @@ DEFAULT_TERMINAL_HEIGHT = 40
 
 __author__ = 'Frank Brehm <frank@brehm-online.com>'
 __copyright__ = '(C) 2023 by Frank Brehm, Berlin'
-__version__ = '0.3.0'
+__version__ = '0.3.1'
 
 
 # =============================================================================
@@ -62,7 +61,9 @@ def pp(value, indent=4, width=None, depth=None):
         term_size = shutil.get_terminal_size((DEFAULT_TERMINAL_WIDTH, DEFAULT_TERMINAL_HEIGHT))
         width = term_size.columns
 
-    return fb_tools.common.pp(value, indent=indent, width=width, depth=depth)
+    pretty_printer = pprint.PrettyPrinter(
+        indent=indent, width=width, depth=depth)
+    return pretty_printer.pformat(value)
 
 
 # =============================================================================
@@ -1222,6 +1223,7 @@ class MonitoringPlugin(MonitoringObject):
             self._description = "Unknown and undescriped monitoring plugin."
 
         self._init_arg_parser()
+        self.post_init()
 
     # -------------------------------------------------------------------------
     def post_init(self):
@@ -1255,7 +1257,11 @@ class MonitoringPlugin(MonitoringObject):
         if has_handlers:
             LOG.error(msg)
             if do_traceback:
-                LOG.error(traceback.format_exc())
+                stack = traceback.format_stack()
+                msg = 'Traceback:\n'
+                for m in stack[0:-1]:
+                    msg += m
+                LOG.error(msg)
         else:
             curdate = datetime.datetime.now()
             curdate_str = "[" + curdate.isoformat(' ') + "]: "
