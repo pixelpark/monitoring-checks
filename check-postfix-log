@@ -12,9 +12,9 @@ from __future__ import print_function
 
 # Own modules
 
-from monitoring_plugin import MonitoringPlugin
+from monitoring import MonitoringPlugin
 
-__version__ = '0.1.0'
+__version__ = '0.1.1'
 
 
 # =============================================================================
