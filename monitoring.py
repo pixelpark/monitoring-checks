@@ -47,7 +47,7 @@ DEFAULT_TERMINAL_HEIGHT = 40
 
 __author__ = 'Frank Brehm <frank@brehm-online.com>'
 __copyright__ = '(C) 2023 by Frank Brehm, Berlin'
-__version__ = '0.4.0'
+__version__ = '0.4.1'
 
 
 # =============================================================================
@@ -1251,11 +1251,13 @@ class MonitoringPlugin(MonitoringObject):
 
     # -------------------------------------------------------------------------
     def __init__(
-            self, appname=None, verbose=0, version=__version__, base_dir=None,
+            self, appname=None, verbose=0, version=None, base_dir=None,
             description=None, initialized=False):
 
         self._appname = self.get_generic_appname(appname)
-        self._version = version
+        self._version = __version__
+        if version:
+            self._version = version + ' (' + os.path.basename(__file__) + ': ' + __version__ + ')'
         self._verbose = int(verbose)
         self._initialized = False
         self._base_dir = None
@@ -1706,7 +1708,7 @@ class MonitoringPlugin(MonitoringObject):
 
         MUST be overwritten by descendant classes.
         """
-        raise FunctionNotImplementedError('run()', self.__class__.__name__)
+        raise FunctionNotImplementedError('run', self.__class__.__name__)
 
     # -------------------------------------------------------------------------
     def _run(self):

@@ -9,19 +9,43 @@
 #
 from __future__ import print_function
 
+import logging
 
 # Own modules
 
 from monitoring import MonitoringPlugin
 
-__version__ = '0.1.1'
+__version__ = '0.2.0'
+
+LOG = logging.getLogger(__name__)
 
 
 # =============================================================================
 class CheckPostfixLogPlugin(MonitoringPlugin):
     """Application class for this plugin."""
 
-    pass
+    # -------------------------------------------------------------------------
+    def __init__(self):
+        """Constructor."""
+
+        desc = (
+            "Analyzes the entries of the Postfix logfile since the last execution "
+            "of this plugin, generates metrics (performance data) of them and emits "
+            "warnings and critical errors on appropriate logfile entries."
+        )
+
+        super(CheckPostfixLogPlugin, self).__init__(version=__version__, description=desc)
+
+    # -------------------------------------------------------------------------
+    def post_init(self):
+        """Post initialization tasks."""
+        super(CheckPostfixLogPlugin, self).post_init()
+        self.initialized = True
+
+    # -------------------------------------------------------------------------
+    def run(self):
+        """Execute the main actions of the application."""
+        LOG.debug("I'm walking, yes indeed, I'm walking....")
 
 
 # =============================================================================
