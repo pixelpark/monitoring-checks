@@ -354,6 +354,10 @@ class Pygtail(object):
             return candidate
 
         rotated_filename_patterns = [
+            # logrotate dateext rotation scheme - `dateformat -%Y-%m-%d` + with `delaycompress`
+            "%s-[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]",
+            # logrotate dateext rotation scheme - `dateformat -%Y-%m-%d` + without `delaycompress`
+            "%s-[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9].gz",
             # logrotate dateext rotation scheme - `dateformat -%Y%m%d` + with `delaycompress`
             "%s-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]",
             # logrotate dateext rotation scheme - `dateformat -%Y%m%d` + without `delaycompress`
