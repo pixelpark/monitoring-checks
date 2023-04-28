@@ -18,6 +18,7 @@ import traceback
 import datetime
 import re
 import pprint
+import copy
 
 from pathlib import Path
 
@@ -47,7 +48,7 @@ DEFAULT_TERMINAL_HEIGHT = 40
 
 __author__ = 'Frank Brehm <frank@brehm-online.com>'
 __copyright__ = '(C) 2023 by Frank Brehm, Berlin'
-__version__ = '0.4.1'
+__version__ = '0.5.0'
 
 
 # =============================================================================
@@ -125,6 +126,102 @@ def is_sequence(arg):
         return False
 
     return True
+
+
+# =============================================================================
+class DirectoryOptionAction(argparse.Action):
+    """An argparse action for directories."""
+
+    # -------------------------------------------------------------------------
+    def __init__(self, option_strings, must_exists=True, writeable=False, *args, **kwargs):
+        """Initialise a DirectoryOptionAction object."""
+        self.must_exists = bool(must_exists)
+        self.writeable = bool(writeable)
+        if self.writeable:
+            self.must_exists = True
+
+        super(DirectoryOptionAction, self).__init__(
+            option_strings=option_strings, *args, **kwargs)
+
+    # -------------------------------------------------------------------------
+    def __call__(self, parser, namespace, given_path, option_string=None):
+        """Parse the directory option."""
+        path = Path(given_path)
+        if not path.is_absolute():
+            msg = "The path {!r} must be an absolute path.".format(given_path)
+            raise argparse.ArgumentError(self, msg)
+
+        if self.must_exists:
+
+            if not path.exists():
+                msg = "The directory {!r} does not exists.".format(str(path))
+                raise argparse.ArgumentError(self, msg)
+
+            if not path.is_dir():
+                msg = "The given path {!r} exists, but is not a directory.".format(str(path))
+                raise argparse.ArgumentError(self, msg)
+
+            if not os.access(str(path), os.R_OK) or not os.access(str(path), os.X_OK):
+                msg = "The given directory {!r} is not readable.".format(str(path))
+                raise argparse.ArgumentError(self, msg)
+
+            if self.writeable and not os.access(str(path), os.W_OK):
+                msg = "The given directory {!r} is not writeable.".format(str(path))
+                raise argparse.ArgumentError(self, msg)
+
+        setattr(namespace, self.dest, path)
+
+
+# =============================================================================
+class LogFileOptionAction(argparse.Action):
+    """An argparse action for logfiles."""
+
+    # -------------------------------------------------------------------------
+    def __init__(self, option_strings, must_exists=True, writeable=False, *args, **kwargs):
+        """Initialise a LogFileOptionAction object."""
+        self.must_exists = bool(must_exists)
+        self.writeable = bool(writeable)
+        super(LogFileOptionAction, self).__init__(
+            option_strings=option_strings, *args, **kwargs)
+
+    # -------------------------------------------------------------------------
+    def __call__(self, parser, namespace, values, option_string=None):
+        """Parse the logfile option."""
+        if values is None:
+            setattr(namespace, self.dest, None)
+            return
+
+        path = Path(values)
+        logdir = path.parent
+
+        # Checking the parent directory of the Logfile
+        if self.must_exists:
+            if not logdir.exists():
+                msg = "Directory {!r} does not exists.".format(str(logdir))
+                raise argparse.ArgumentError(self, msg)
+            if not logdir.is_dir():
+                msg = "Path {!r} exists, but is not a directory.".format(str(logdir))
+                raise argparse.ArgumentError(self, msg)
+            if self.writeable and not os.access(str(logdir), os.W_OK):
+                msg = "The directory {!r} is not writeable.".format(str(logdir))
+                raise argparse.ArgumentError(self, msg)
+
+        # Checking logfile, if it is already existing
+        if path.exists():
+            if not path.is_file():
+                msg = "File {!r} is not a regular file.".format(values)
+                raise argparse.ArgumentError(self, msg)
+            if not os.access(values, os.R_OK):
+                msg = "File {!r} is not readable.".format(values)
+                raise argparse.ArgumentError(self, msg)
+            if self.writeable and not os.access(value, os.W_OK):
+                msg = "The given file {!r} is not writeable.".format(values)
+                raise argparse.ArgumentError(self, msg)
+        elif self.must_exists:
+            msg = "The file {!r} does not exists.".format(str(path))
+            raise argparse.ArgumentError(self, msg)
+
+        setattr(namespace, self.dest, path.resolve())
 
 
 # =============================================================================
@@ -243,6 +340,17 @@ class FunctionNotImplementedError(MonitoringPluginError, NotImplementedError):
 
 
 # =============================================================================
+def reverse_rorror_codes(errors):
+    """Generates the reversed errors hash for a MonitoringObject."""
+    error_codes = {}
+
+    for name in errors.keys():
+        code = errors[name]
+        error_codes[code] = name
+
+    return error_codes
+
+# =============================================================================
 class MonitoringObject(object):
     """
     Base object of all classes in this module (except Exceptions).
@@ -261,22 +369,7 @@ class MonitoringObject(object):
         'UNKNOWN': 3,
         'DEPENDENT': 4,
     }
-    error_codes = {}
-
-    # -------------------------------------------------------------------------
-    @classmethod
-    def __new__(cls, *args, **kwargs):
-        cls.static_init()
-        return super(MonitoringObject, cls).__new__(*args, **kwargs)
-
-    # -------------------------------------------------------------------------
-    @classmethod
-    def static_init(cls):
-
-        cls.error_codes = {}
-        for name in cls.errors.keys():
-            code = cls.errors[name]
-            cls.error_codes[code] = name
+    error_codes = reverse_rorror_codes(errors)
 
     # -------------------------------------------------------------------------
     @property
@@ -307,6 +400,29 @@ class MonitoringObject(object):
     def status_dependent(self):
         """The numerical value of DEPENDENT."""
         return self.errors['DEPENDENT']
+
+    # -------------------------------------------------------------------------
+    def as_dict(self):
+        """
+        Typecasting into a dictionary.
+
+        @return: structure as dict
+        @rtype:  dict
+
+        """
+
+        ret = {
+            '__class__': self.__class__.__name__,
+            'errors': copy.copy(self.errors),
+            'error_codes': copy.copy(self.error_codes),
+            'status_ok': self.status_ok,
+            'status_warning': self.status_warning,
+            'status_critical': self.status_critical,
+            'status_unknown': self.status_unknown,
+            'status_dependent': self.status_dependent,
+        }
+
+        return ret
 
 
 # =============================================================================
@@ -464,16 +580,14 @@ class MonitoringRange(MonitoringObject):
         @rtype:  dict
 
         """
+        ret = super(MonitoringRange, self).as_dict()
 
-        d = {
-            '__class__': self.__class__.__name__,
-            'start': self.start,
-            'end': self.end,
-            'invert_match': self.invert_match,
-            'initialized': self.initialized,
-        }
+        ret['start'] = self.start
+        ret['end'] = self.end
+        ret['invert_match'] = self.invert_match
+        ret['initialized'] = self.initialized
 
-        return d
+        return ret
 
     # -------------------------------------------------------------------------
     def __repr__(self):
@@ -905,19 +1019,17 @@ class MonitoringPerformance(MonitoringObject):
         @rtype:  dict
 
         """
+        ret = super(MonitoringPerformance, self).as_dict()
 
-        d = {
-            '__class__': self.__class__.__name__,
-            'label': self.label,
-            'value': self.value,
-            'uom': self.uom,
-            'threshold': self.threshold.as_dict(),
-            'min_data': self.min_data,
-            'max_data': self.max_data,
-            'status': self.status(),
-        }
+        ret['label'] = self.label
+        ret['value'] = self.value
+        ret['uom'] = self.uom
+        ret['threshold'] = self.threshold
+        ret['min_data'] = self.min_data
+        ret['max_data'] = self.max_data
+        ret['status'] = self.status()
 
-        return d
+        return ret
 
     # -------------------------------------------------------------------------
     def status(self):
@@ -1166,20 +1278,12 @@ class MonitoringThreshold(MonitoringObject):
         @rtype:  dict
 
         """
+        ret = super(MonitoringThreshold, self).as_dict()
 
-        d = {
-            '__class__': self.__class__.__name__,
-            'warning': None,
-            'critical': None,
-        }
+        ret['warning'] = self.warning.as_dict()
+        ret['critical'] = self.critical.as_dict()
 
-        if self.warning:
-            d['warning'] = self.warning.as_dict()
-
-        if self.critical:
-            d['critical'] = self.critical.as_dict()
-
-        return d
+        return ret
 
     # -------------------------------------------------------------------------
     def __repr__(self):
@@ -1287,6 +1391,10 @@ class MonitoringPlugin(MonitoringObject):
 
         self._init_arg_parser()
         self.post_init()
+
+        if self.verbose > 2:
+            msg = 'Current plugin properties:\n' + pp(self.as_dict())
+            LOG.debug(msg)
 
     # -------------------------------------------------------------------------
     def post_init(self):
@@ -1450,10 +1558,10 @@ class MonitoringPlugin(MonitoringObject):
         @rtype:  str
         """
 
-        return pp(self.as_dict(short=True))
+        return pp(self.as_dict())
 
     # -------------------------------------------------------------------------
-    def as_dict(self, short=True):
+    def as_dict(self):
         """
         Transforms the elements of the object into a dict
 
@@ -1463,27 +1571,24 @@ class MonitoringPlugin(MonitoringObject):
         @return: structure as dict
         @rtype:  dict
         """
+        ret = super(MonitoringPlugin, self).as_dict()
 
-        res = {}
-        for key in self.__dict__:
-            if short and key.startswith('_') and not key.startswith('__'):
-                continue
-            res[key] = self.__dict__[key]
+        ret['appname'] = self.appname
+        ret['arg_parser'] = self.arg_parser
+        ret['args'] = copy.copy(self.args.__dict__)
+        ret['base_dir'] = self.base_dir
+        ret['description'] = self.verbose
+        ret['initialized'] = self.initialized
+        ret['perf_data'] = []
+        ret['status'] = self.status
+        ret['status_msg'] = self.status_msg
+        ret['verbose'] = self.verbose
+        ret['version'] = self.version
 
-        res['__class_name__'] = self.__class__.__name__
-        res['appname'] = self.appname
-        res['version'] = self.version
-        res['verbose'] = self.verbose
-        res['description'] = self.verbose
-        res['initialized'] = self.initialized
-        res['base_dir'] = self.base_dir
-        res['state'] = self.state
-        res['status_msg'] = self.status_msg
-        res['perf_data'] = []
         for pdata in self.perf_data:
-            res['perf_data'].append(pdata.as_dict())
+            ret['perf_data'].append(pdata.as_dict())
 
-        return res
+        return ret
 
     # -------------------------------------------------------------------------
     def _init_arg_parser(self):

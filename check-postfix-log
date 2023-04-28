@@ -11,11 +11,15 @@ from __future__ import print_function
 
 import logging
 
+from pathlib import Path
+
 # Own modules
 
-from monitoring import MonitoringPlugin
+from monitoring import MonitoringPlugin, DirectoryOptionAction, LogFileOptionAction
+from pygtail import Pygtail
+from postfix_logsums import PostfixLogParser
 
-__version__ = '0.2.0'
+__version__ = '0.2.1'
 
 LOG = logging.getLogger(__name__)
 
@@ -24,9 +28,22 @@ LOG = logging.getLogger(__name__)
 class CheckPostfixLogPlugin(MonitoringPlugin):
     """Application class for this plugin."""
 
+    default_offset_dir = Path('/var/tmp')
+    dist_maillogs = [
+        Path('/var/log/maillog'),
+        Path('/var/log/mail.log'),
+        Path('/var/log/syslog.d/mail.log'),
+    ]
+
     # -------------------------------------------------------------------------
     def __init__(self):
         """Constructor."""
+
+        self.logfile = None
+        self.pygtail = None
+        self.pf_parser = None
+        self.offset_dir = self.default_offset_dir
+        self.offset_basename = None
 
         desc = (
             "Analyzes the entries of the Postfix logfile since the last execution "
@@ -37,10 +54,51 @@ class CheckPostfixLogPlugin(MonitoringPlugin):
         super(CheckPostfixLogPlugin, self).__init__(version=__version__, description=desc)
 
     # -------------------------------------------------------------------------
+    def init_arg_parser(self):
+        """Initializing special command line options for this plugin."""
+        check_group = self.arg_parser.add_argument_group('Options for checking postfix log files')
+
+        check_group.add_argument(
+            '-f', '--file', '--logfile', metavar='FILE',
+            action=LogFileOptionAction, must_exists=False,
+            help='The postfix logfile to check. If not given, a standard filename is used.'
+        )
+
+        check_group.add_argument(
+            '--offset-dir', metavar='DIR',
+            action=DirectoryOptionAction, must_exists=True, writeable=True,
+            help=(
+                'The directory, which should contain the offset file of the postfix logfile. '
+                'Default: {!r}.').format(str(self.default_offset_dir)),
+        )
+
+    # -------------------------------------------------------------------------
     def post_init(self):
         """Post initialization tasks."""
         super(CheckPostfixLogPlugin, self).post_init()
         self.initialized = True
+
+    # -------------------------------------------------------------------------
+    def as_dict(self):
+        """
+        Transforms the elements of the object into a dict
+
+        @param short: don't include local properties in resulting dict.
+        @type short: bool
+
+        @return: structure as dict
+        @rtype:  dict
+        """
+        ret = super(CheckPostfixLogPlugin, self).as_dict()
+
+        ret['default_offset_dir'] = self.default_offset_dir
+        ret['dist_maillogs'] = self.dist_maillogs
+        ret['logfile'] = self.logfile
+        ret['offset_dir'] = self.offset_dir
+        ret['pf_parser'] = self.pf_parser
+        ret['pygtail'] = self.pygtail
+
+        return ret
 
     # -------------------------------------------------------------------------
     def run(self):
