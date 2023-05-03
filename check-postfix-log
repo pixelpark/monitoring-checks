@@ -22,7 +22,7 @@ from monitoring import pp
 from pygtail import Pygtail
 from postfix_logsums import PostfixLogParser
 
-__version__ = '0.3.3'
+__version__ = '0.3.4'
 
 LOG = logging.getLogger(__name__)
 
@@ -309,7 +309,7 @@ class CheckPostfixLogPlugin(MonitoringPlugin):
         warnings = 0
         for cmd in results.warnings.keys():
             for msg in results.warnings[cmd].keys():
-                warnings += len(results.warnings[cmd][msg])
+                warnings += results.warnings[cmd][msg]
         self.add_perfdata(
             'warnings', warnings, warning=self.args.warning, critical=self.args.critical,
             min_data=0)
@@ -338,13 +338,13 @@ class CheckPostfixLogPlugin(MonitoringPlugin):
         panics = 0
         for cmd in results.panics.keys():
             for msg in results.panics[cmd].keys():
-                panics += len(results.panics[cmd][msg])
+                panics += results.panics[cmd][msg]
         self.add_perfdata('panics', panics, critical=1, min_data=0)
 
         fatals = 0
         for cmd in results.fatals.keys():
             for msg in results.fatals[cmd].keys():
-                fatals += len(results.fatals[cmd][msg])
+                fatals += results.fatals[cmd][msg]
         self.add_perfdata('fatals', fatals, critical=1, min_data=0)
 
         if panics or fatals:
