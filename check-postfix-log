@@ -21,7 +21,7 @@ from monitoring import MonitoringPlugin, DirectoryOptionAction, LogFileOptionAct
 from pygtail import Pygtail
 from postfix_logsums import PostfixLogParser
 
-__version__ = '0.2.3'
+__version__ = '0.2.4'
 
 LOG = logging.getLogger(__name__)
 
@@ -78,6 +78,22 @@ class CheckPostfixLogPlugin(MonitoringPlugin):
             help=(
                 'The directory, which should contain the offset file of the postfix logfile. '
                 'Default: {!r}.').format(str(self.default_offset_dir)),
+        )
+
+        check_group.add_argument(
+            '--copytruncate', dest='copytruncate', action='store_true',
+            help='Support copytruncate-style log rotation.')
+
+        check_group.add_argument(
+            '--log-pattern', dest='logpattern', nargs='*', metavar='GLOB',
+            help=(
+                'Custom log rotation glob pattern. You may use this multiple times '
+                'to provide multiple patterns.'),
+        )
+
+        check_group.add_argument(
+            '--encoding', dest='encoding', metavar='ENCODING',
+            help='Encoding to use for reading files (default: system encoding).',
         )
 
     # -------------------------------------------------------------------------
@@ -158,9 +174,13 @@ class CheckPostfixLogPlugin(MonitoringPlugin):
     def init_pygtail(self):
         """Initializing the Pygtail-Object for getting the last log entries
         of Postfix."""
+        c_tr = False
+        if self.args.copytruncate:
+            c_tr = True
         self.pygtail = Pygtail(
-            filename=str(self.logfile), offset_file=str(self.offset_file), copytruncate=False,
-            every_n=0, full_lines=True)
+            filename=str(self.logfile), offset_file=str(self.offset_file), copytruncate=True,
+            every_n=0, full_lines=True, read_from_end=True, log_patterns=self.args.logpattern,
+            encoding=self.args.encoding)
 
     # -------------------------------------------------------------------------
     def as_dict(self):
@@ -192,6 +212,12 @@ class CheckPostfixLogPlugin(MonitoringPlugin):
     def run(self):
         """Execute the main actions of the application."""
         LOG.debug("I'm walking, yes indeed, I'm walking....")
+
+        lines = []
+        for line in self.pygtail:
+            lines.append(line)
+
+        LOG.info("Got {} lines of postfix logging.".format(len(lines)))
 
         self.pygtail = None
 
