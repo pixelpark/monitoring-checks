@@ -48,7 +48,7 @@ DEFAULT_TERMINAL_HEIGHT = 40
 
 __author__ = 'Frank Brehm <frank@brehm-online.com>'
 __copyright__ = '(C) 2023 by Frank Brehm, Berlin'
-__version__ = '0.5.0'
+__version__ = '0.5.1'
 
 
 # =============================================================================
@@ -1776,6 +1776,8 @@ class MonitoringPlugin(MonitoringObject):
                 message = ' '.join(lambda x: str(x).strip(), message)
             else:
                 message = str(message).strip()
+
+        LOG.debug("Exiting with status {s} ({c}): {m}".format(s=status, c=code, m=message))
 
         # Setup output
         output = ''
