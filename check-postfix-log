@@ -22,7 +22,7 @@ from monitoring import pp
 from pygtail import Pygtail
 from postfix_logsums import PostfixLogParser
 
-__version__ = '0.2.5'
+__version__ = '0.3.0'
 
 LOG = logging.getLogger(__name__)
 
@@ -56,6 +56,8 @@ class CheckPostfixLogPlugin(MonitoringPlugin):
         )
 
         super(CheckPostfixLogPlugin, self).__init__(version=__version__, description=desc)
+
+        self.status_msg = 'No lines of Postfix logging found.'
 
     # --------------------------------------------------------------------------
     def __del__(self):
@@ -95,6 +97,20 @@ class CheckPostfixLogPlugin(MonitoringPlugin):
         check_group.add_argument(
             '--encoding', dest='encoding', metavar='ENCODING',
             help='Encoding to use for reading files (default: system encoding).',
+        )
+
+        check_group.add_argument(
+            '-w', '--warning', dest='warning', metavar='WARNINGS', type=int,
+            help=(
+                'Number of warning messages in check interval leading to '
+                'a warning result.')
+        )
+
+        check_group.add_argument(
+            '-c', '--critical', dest='critical', metavar='WARNINGS', type=int,
+            help=(
+                'Number of warning messages in check interval leading to '
+                'a critical result.')
         )
 
     # -------------------------------------------------------------------------
@@ -244,13 +260,106 @@ class CheckPostfixLogPlugin(MonitoringPlugin):
         """Execute the main actions of the application."""
         LOG.debug("I'm walking, yes indeed, I'm walking....")
 
-        lines = []
+        i = 0
         for line in self.pygtail:
-            lines.append(line)
+            i += 1
+            self.pf_parser.eval_line(line)
 
-        LOG.info("Got {} lines of postfix logging.".format(len(lines)))
+        self.status = self.status_ok
+        self.status_msg = "All postfix logs seems to be okay."
+
+        if i > 1:
+            LOG.debug("Got {} lines of postfix logging.".format(len(lines)))
+        elif i == 1:
+            LOG.debug("Got one line of postfix logging.")
+        else:
+            LOG.debug("Got no lines of postfix logging.")
+
+        if self.verbose > 1:
+            LOG.info('Result of parsing:\n' + pp(self.pf_parser.results.as_dict()))
+
+        self.eval_results(self.pf_parser.results)
 
         self.pygtail = None
+
+    # -------------------------------------------------------------------------
+    def eval_results(self, results):
+        """Evaluate results from parsed logfiles."""
+        self.add_perfdata('lines', results.lines_considered, min_data=0)
+
+        self.add_perfdata('received', results.msgs_total.received, min_data=0)
+        self.add_perfdata('delivered', results.msgs_total.delivered, min_data=0)
+        self.add_perfdata('forwarded', results.msgs_total.forwarded, min_data=0)
+        self.add_perfdata('deferred', results.msgs_total.deferred, min_data=0)
+        self.add_perfdata('bounced', results.msgs_total.bounced, min_data=0)
+        self.add_perfdata('rejected', results.msgs_total.rejected, min_data=0)
+        self.add_perfdata('rejectwarnings', results.msgs_total.reject_warning, min_data=0)
+        self.add_perfdata('held', results.msgs_total.held, min_data=0)
+        self.add_perfdata('discarded', results.msgs_total.discarded, min_data=0)
+        self.add_perfdata('mastermessages', results.msgs_total.master, min_data=0)
+        self.add_perfdata('bytesreceived', results.msgs_total.bytes_received, uom='Bytes', min_data=0)
+        self.add_perfdata('bytesdelivered', results.msgs_total.bytes_delivered, uom='Bytes', min_data=0)
+
+        self.eval_warnings(results)
+        self.eval_errors(results)
+
+    # -------------------------------------------------------------------------
+    def eval_warnings(self, results):
+        """Evaluating warning messages."""
+        warnings = 0
+        for cmd in results.warnings.keys():
+            for msg in results.warnings[cmd].keys():
+                warnings += len(results.warnings[cmd][msg])
+        self.add_perfdata(
+            'warnings', warnings, warning=self.args.warning, critical=self.args.critical,
+            min_data=0)
+
+        if warnings:
+            if self.status == self.status_ok:
+                self.status_msg = ''
+            else:
+                self.status_msg += ' '
+            s = ''
+            if warnings > 1:
+                s = 's'
+            self.status_msg += 'Found {nr} warning message{s}.'.format(
+                nr=warnings, s=s)
+
+        if self.args.critical:
+            if warnings > self.args.critical:
+                self.status = self.status_critical
+        if self.args.warning:
+            if warnings > self.args.warning and self.status == self.status_ok:
+                self.status = self.status_warning
+
+    # -------------------------------------------------------------------------
+    def eval_errors(self, results):
+        """Evaluating fatal and panic messages."""
+        panics = 0
+        for cmd in results.panics.keys():
+            for msg in results.panics[cmd].keys():
+                panics += len(results.panics[cmd][msg])
+        self.add_perfdata('panics', panics, critical=1, min_data=0)
+
+        fatals = 0
+        for cmd in results.fatals.keys():
+            for msg in results.fatals[cmd].keys():
+                fatals += len(results.fatals[cmd][msg])
+        self.add_perfdata('fatals', fatals, critical=1, min_data=0)
+
+        if panics or fatals:
+            if self.status == self.status_ok:
+                self.status_msg = ''
+            else:
+                self.status_msg += ' '
+            self.status = self.status_critical
+            what = []
+            if panics:
+                what.append('panic')
+            if fatals:
+                what.append('fatal')
+
+            self.status_msg += 'Found ' + ' and '.join(what) + ' messages.'
 
     # -------------------------------------------------------------------------
     def nagios_exit(self, status_code, status_msg):
