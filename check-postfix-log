@@ -10,6 +10,8 @@
 from __future__ import print_function
 
 import logging
+import copy
+import os
 
 from pathlib import Path
 
@@ -19,7 +21,7 @@ from monitoring import MonitoringPlugin, DirectoryOptionAction, LogFileOptionAct
 from pygtail import Pygtail
 from postfix_logsums import PostfixLogParser
 
-__version__ = '0.2.1'
+__version__ = '0.2.2'
 
 LOG = logging.getLogger(__name__)
 
@@ -44,6 +46,7 @@ class CheckPostfixLogPlugin(MonitoringPlugin):
         self.pf_parser = None
         self.offset_dir = self.default_offset_dir
         self.offset_basename = None
+        self.offset_file = None
 
         desc = (
             "Analyzes the entries of the Postfix logfile since the last execution "
@@ -59,13 +62,13 @@ class CheckPostfixLogPlugin(MonitoringPlugin):
         check_group = self.arg_parser.add_argument_group('Options for checking postfix log files')
 
         check_group.add_argument(
-            '-f', '--file', '--logfile', metavar='FILE',
+            '-f', '--file', '--logfile', metavar='FILE', dest='logfile',
             action=LogFileOptionAction, must_exists=False,
             help='The postfix logfile to check. If not given, a standard filename is used.'
         )
 
         check_group.add_argument(
-            '--offset-dir', metavar='DIR',
+            '--offset-dir', metavar='DIR', dest="offset_dir",
             action=DirectoryOptionAction, must_exists=True, writeable=True,
             help=(
                 'The directory, which should contain the offset file of the postfix logfile. '
@@ -76,7 +79,74 @@ class CheckPostfixLogPlugin(MonitoringPlugin):
     def post_init(self):
         """Post initialization tasks."""
         super(CheckPostfixLogPlugin, self).post_init()
+        self.eval_logfile()
+        self.eval_offset_file()
         self.initialized = True
+
+    # -------------------------------------------------------------------------
+    def eval_logfile(self):
+        """Trying to evaluate the postfix logfile, either by the logfile
+        given via command line option --file or by one of the standard logfiles
+        for different Linux distributions."""
+        possible_logfiles = []
+        if self.args.logfile:
+            possible_logfiles.append(self.args.logfile)
+        possible_logfiles.extend(copy.copy(self.dist_maillogs))
+
+        for logfile in possible_logfiles:
+            if not logfile.exists():
+                LOG.debug("Logfile {!r} does not exists.".format(str(logfile)))
+                continue
+            if not logfile.is_file():
+                LOG.debug("Path {!r} is not a regular file.".format(str(logfile)))
+                continue
+            if not os.access(str(logfile), os.R_OK):
+                LOG.debug("Logfile {!r} is not readable.".format(str(logfile)))
+                continue
+            self.logfile = logfile
+            LOG.debug("Using Postfix logfile {!r}.".format(str(logfile)))
+            return
+
+        self.status_msg = "No usable Postfix logfile found."
+        self.nagios_exit(self.status_unknown, self.status_msg)
+
+    # -------------------------------------------------------------------------
+    def eval_offset_file(self):
+        """Trying to evaluate the complete path to the offset file for pygtail."""
+        log_basename = self.logfile.name
+        self.offset_basename = log_basename + '.offset'
+
+        self.offset_dir = self.default_offset_dir
+        if self.args.offset_dir:
+            self.offset_dir = self.args.offset_dir
+        err_msg = None
+
+        if not self.offset_dir.exists():
+            err_msg = "Directory {!r} for offset file does not exists.".format(
+                str(self.offset_dir))
+        elif not self.offset_dir.is_dir():
+            err_msg = "Path {!r} is not a directory.".format(str(self.offset_dir))
+        elif not os.access(str(self.offset_dir), os.W_OK):
+            err_msg = "Directory {!r} for offset file is not writeable.".format(
+                str(self.offset_dir))
+
+        if err_msg:
+            self.status_msg = err_msg
+            self.nagios_exit(self.status_unknown, err_msg)
+
+        self.offset_file = self.offset_dir / self.offset_basename
+
+        if self.offset_file.exists():
+            if not self.offset_file.is_file():
+                err_msg = "Path {!r} for offset file is not a regular file.".format(
+                    str(self.offset_file))
+            elif not os.access(str(self.offset_file), os.W_OK):
+                err_msg = "Offset file {!r} is not writeable.".format(
+                    str(self.offset_file))
+
+        if err_msg:
+            self.status_msg = err_msg
+            self.nagios_exit(self.status_unknown, err_msg)
 
     # -------------------------------------------------------------------------
     def as_dict(self):
@@ -94,7 +164,9 @@ class CheckPostfixLogPlugin(MonitoringPlugin):
         ret['default_offset_dir'] = self.default_offset_dir
         ret['dist_maillogs'] = self.dist_maillogs
         ret['logfile'] = self.logfile
+        ret['offset_basename'] = self.offset_basename
         ret['offset_dir'] = self.offset_dir
+        ret['offset_file'] = self.offset_file
         ret['pf_parser'] = self.pf_parser
         ret['pygtail'] = self.pygtail
 
