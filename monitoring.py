@@ -1692,7 +1692,7 @@ class MonitoringPlugin(MonitoringObject):
 
     # -------------------------------------------------------------------------
     def nagios_exit(self, status_code, status_msg):
-
+        """Exit the app with given status code and status message."""
         if status_code not in self.error_codes:
             ocode = status_code
             status_code = 3
