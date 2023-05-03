@@ -48,7 +48,7 @@ DEFAULT_TERMINAL_HEIGHT = 40
 
 __author__ = 'Frank Brehm <frank@brehm-online.com>'
 __copyright__ = '(C) 2023 by Frank Brehm, Berlin'
-__version__ = '0.5.1'
+__version__ = '0.5.2'
 
 
 # =============================================================================
@@ -1403,8 +1403,7 @@ class MonitoringPlugin(MonitoringObject):
         self.init_logging()
 
     # -------------------------------------------------------------------------
-    def handle_error(
-            self, error_message=None, exception_name=None, do_traceback=False):
+    def handle_error(self, error_message=None, exception_name=None, tb=None):
 
         msg = str(error_message).strip()
         if not msg:
@@ -1427,12 +1426,8 @@ class MonitoringPlugin(MonitoringObject):
 
         if has_handlers:
             LOG.error(msg)
-            if do_traceback:
-                stack = traceback.format_stack()
-                msg = 'Traceback:\n'
-                for m in stack[0:-1]:
-                    msg += m
-                LOG.error(msg)
+            if tb:
+                LOG.error('Traceback:\n' + tb)
         else:
             curdate = datetime.datetime.now()
             curdate_str = "[" + curdate.isoformat(' ') + "]: "
@@ -1441,8 +1436,8 @@ class MonitoringPlugin(MonitoringObject):
                 sys.stderr.buffer.write(to_bytes(msg))
             else:
                 sys.stderr.write(msg)
-            if do_traceback:
-                traceback.print_exc()
+            if tb:
+                print('Traceback:\n' + tb)
 
         return
 
@@ -1827,14 +1822,24 @@ class MonitoringPlugin(MonitoringObject):
         @return: None
         """
         if not self.initialized:
-            self.handle_error("The application is not completely initialized.", '', True)
-            self.exit(self.status_unknown)
+            try:
+                raise MonitoringException("The application is not completely initialized.")
+            except Exception as e:
+                tb = ''
+                for m in traceback.format_exc():
+                    tb += m
+                self.handle_error(str(e), e.__class__.__name__, tb)
+                self.status = self.status_unknown
+                self.die(str(e), no_status_line=True)
 
         try:
             self.pre_run()
         except Exception as e:
-            self.handle_error(str(e), e.__class__.__name__, True)
-            self.exit(self.status_unknown8)
+            tb = ''
+            for m in traceback.format_exc():
+                 tb += m
+            self.handle_error(str(e), e.__class__.__name__, tb)
+            self.exit(self.status_unknown)
 
         if not self.initialized:
             raise MonitoringException(
@@ -1846,7 +1851,10 @@ class MonitoringPlugin(MonitoringObject):
         except MonitoringException as e:
             self.die(str(e), no_status_line=True)
         except Exception as e:
-            self.handle_error(str(e), e.__class__.__name__, True)
+            tb = ''
+            for m in traceback.format_exc():
+                 tb += m
+            self.handle_error(str(e), e.__class__.__name__, tb)
             self.status = self.status_unknown
             self.die(str(e), no_status_line=True)
 
@@ -1855,7 +1863,10 @@ class MonitoringPlugin(MonitoringObject):
         except MonitoringException as e:
             self.die(str(e), no_status_line=True)
         except Exception as e:
-            self.handle_error(str(e), e.__class__.__name__, True)
+            tb = ''
+            for m in traceback.format_exc():
+                 tb += m
+            self.handle_error(str(e), e.__class__.__name__, tb)
             self.status = self.status_unknown
             self.die(str(e), no_status_line=True)
 
