@@ -22,7 +22,7 @@ from monitoring import pp
 from pygtail import Pygtail
 from postfix_logsums import PostfixLogParser
 
-__version__ = '0.3.4'
+__version__ = '0.3.5'
 
 LOG = logging.getLogger(__name__)
 
@@ -315,15 +315,16 @@ class CheckPostfixLogPlugin(MonitoringPlugin):
             min_data=0)
 
         if warnings:
-            if self.status == self.status_ok:
-                self.status_msg = ''
-            else:
-                self.status_msg += ' '
             s = ''
             if warnings > 1:
                 s = 's'
-            self.status_msg += 'Found {nr} warning message{s}.'.format(
-                nr=warnings, s=s)
+            append = 'Found {nr} warning message{s}.'.format(nr=warnings, s=s)
+            if self.status == self.status_ok:
+                self.status_msg = append
+            elif self.status_msg:
+                self.status_msg += ' ' + append
+            else:
+                self.status_msg = append
 
         if self.args.critical:
             if warnings > self.args.critical:
@@ -348,10 +349,6 @@ class CheckPostfixLogPlugin(MonitoringPlugin):
         self.add_perfdata('fatals', fatals, critical=1, min_data=0)
 
         if panics or fatals:
-            if self.status == self.status_ok:
-                self.status_msg = ''
-            else:
-                self.status_msg += ' '
             self.status = self.status_critical
             what = []
             if panics:
@@ -359,7 +356,13 @@ class CheckPostfixLogPlugin(MonitoringPlugin):
             if fatals:
                 what.append('fatal')
 
-            self.status_msg += 'Found ' + ' and '.join(what) + ' messages.'
+            apend = 'Found ' + ' and '.join(what) + ' messages.'
+            if self.status == self.status_ok:
+                self.status_msg = append
+            elif self.status_msg:
+                self.status_msg += ' ' + append
+            else:
+                self.status_msg = append
 
     # -------------------------------------------------------------------------
     def exit(self, status=None, message=None, no_status_line=False):
