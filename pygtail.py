@@ -30,9 +30,12 @@ from os.path import exists, getsize
 import sys
 import glob
 import gzip
+import bz2
+import lzma
 import io
+import re
 
-__version__ = '0.16.0'
+__version__ = '0.16.1'
 
 PY3 = sys.version_info[0] == 3
 
@@ -133,6 +136,10 @@ class Pygtail(object):
     olddir        A directory containing the rotated logfiles, either as an absolute
                   path or relative to the parent directory of the logfile.
     """
+
+    re_gzipfile = re.compile(r'\.gz$', re.IGNORECASE)
+    re_bzip2file = re.compile(r'\bz(?:ip)?2$', re.IGNORECASE)
+    re_xzfile = e.compile(r'\.xz$', re.IGNORECASE)
 
     # --------------------------------------------------------------------------
     def __init__(self, filename, offset_file=None, paranoid=False, copytruncate=True,
@@ -273,8 +280,12 @@ class Pygtail(object):
         if not self.fh or self._is_closed():
             self._counter += 1
             filename = self.rotated_logfile or self.filename
-            if filename.endswith('.gz'):
+            if self.re_gzipfile.search(filename):
                 self.fh = gzip.open(filename, 'r')
+            elif self.re_bzip2file.search(filename):
+                self.fh = bz2.open(filename, 'r')
+            elif self.re_xzfile.search(filename):
+                self.fh = lzma.open(filename, 'r')
             elif PY3:
                 self.fh = open(filename, "r", 1, encoding=self.encoding)
             else:
@@ -367,9 +378,9 @@ class Pygtail(object):
         candidate_globs = [
             os.path.join(olddir, log_basename) + ".1",
             os.path.join(olddir, log_basename) + ".1.[Gg][Zz]",
-            # os.path.join(olddir, log_basename) + ".1.[Bb][Zz]2",
-            # os.path.join(olddir, log_basename) + ".1.[Bb][Zz][Ii][Pp]2",
-            # os.path.join(olddir, log_basename) + ".1.[Xx][Zz]",
+            os.path.join(olddir, log_basename) + ".1.[Bb][Zz]2",
+            os.path.join(olddir, log_basename) + ".1.[Bb][Zz][Ii][Pp]2",
+            os.path.join(olddir, log_basename) + ".1.[Xx][Zz]",
         ]
         for globbing in candidate_globs:
             candidates = glob.glob(globbing)
@@ -382,28 +393,28 @@ class Pygtail(object):
             "-[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]",
             # logrotate dateext rotation scheme - `dateformat -%Y-%m-%d` + without `delaycompress`
             "-[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9].[Gg][Zz]",
-            # "-[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9].[Bb][Zz]2",
-            # "-[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9].[Bb][Zz][Ii][Pp]2",
-            # "-[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9].[Xx][Zz]",
+            "-[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9].[Bb][Zz]2",
+            "-[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9].[Bb][Zz][Ii][Pp]2",
+            "-[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9].[Xx][Zz]",
             # logrotate dateext rotation scheme - `dateformat -%Y%m%d` + with `delaycompress`
             "-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]",
             # logrotate dateext rotation scheme - `dateformat -%Y%m%d` + without `delaycompress`
             "-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].[Gg][Zz]",
-            # "-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].[Bb][Zz]2",
-            # "-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].[Bb][Zz][Ii][Pp]2",
-            # "-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].[Xx][Zz]",
+            "-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].[Bb][Zz]2",
+            "-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].[Bb][Zz][Ii][Pp]2",
+            "-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].[Xx][Zz]",
             # logrotate dateext rotation scheme - `dateformat -%Y%m%d-%s` + with `delaycompress`
             "-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-"
             "[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]",
             # logrotate dateext rotation scheme - `dateformat -%Y%m%d-%s` + without `delaycompress`
             "-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-"
             "[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].[Gg][Zz]",
-            # "-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-"
-            # "[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].[Bz][Zz]2",
-            # "-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-"
-            # "[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].[Bz][Zz][Ii][Pp]2",
-            # "-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-"
-            # "[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].[Xz[Zz]",
+            "-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-"
+            "[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].[Bz][Zz]2",
+            "-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-"
+            "[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].[Bz][Zz][Ii][Pp]2",
+            "-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-"
+            "[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].[Xz[Zz]",
             # for TimedRotatingFileHandler
             ".[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]",
         ]
