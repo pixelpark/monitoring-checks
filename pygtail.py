@@ -139,7 +139,7 @@ class Pygtail(object):
 
     re_gzipfile = re.compile(r'\.gz$', re.IGNORECASE)
     re_bzip2file = re.compile(r'\bz(?:ip)?2$', re.IGNORECASE)
-    re_xzfile = e.compile(r'\.xz$', re.IGNORECASE)
+    re_xzfile = re.compile(r'\.xz$', re.IGNORECASE)
 
     # --------------------------------------------------------------------------
     def __init__(self, filename, offset_file=None, paranoid=False, copytruncate=True,
