@@ -32,7 +32,7 @@ import glob
 import gzip
 import io
 
-__version__ = '0.15.0'
+__version__ = '0.16.0'
 
 PY3 = sys.version_info[0] == 3
 
@@ -130,12 +130,14 @@ class Pygtail(object):
     log_patterns  List of custom rotated log patterns to match (default: None)
     full_lines    Only log when line ends in a newline `\n` (default: False)
     save_on_end   Automatically save the offset once the end of the file is reached (default: True)
+    olddir        A directory containing the rotated logfiles, either as an absolute
+                  path or relative to the parent directory of the logfile.
     """
 
     # --------------------------------------------------------------------------
     def __init__(self, filename, offset_file=None, paranoid=False, copytruncate=True,
                  every_n=0, on_update=False, read_from_end=False, log_patterns=None,
-                 full_lines=False, save_on_end=True, encoding=None):
+                 full_lines=False, save_on_end=True, encoding=None, olddir=None):
         self.filename = filename
         self.paranoid = paranoid
         self.every_n = every_n
@@ -146,6 +148,7 @@ class Pygtail(object):
         self.full_lines = full_lines
         self.save_on_end = save_on_end
         self.encoding = encoding
+        self.olddir = None
         self.offset_file = offset_file or "%s.offset" % self.filename
         self.offset_file_inode = 0
         self.offset = 0
@@ -336,49 +339,79 @@ class Pygtail(object):
         Check for various rotated logfile filename patterns and return the first
         match we find.
         """
+        # break into directory and filename components to support cases where the
+        # the file is prepended as part of rotation
+        logdir = os.path.dirname(self.filename)
+        log_basename = os.path.basename(self.filename)
+        (log_stem, log_ext) = os.path.splitext(log_basename)
+
+        # Checking olddir
+        olddir = None
+        if self.olddir:
+            if os.path.isabs(self.olddir):
+                olddir = self.olddir
+            else:
+                olddir = os.path.join(logdir, self.olddir)
+            if not os.path.exists(olddir) or not os.path.isdir(olddir):
+                olddir = logdir
+        else:
+            olddir = logdir
+
         # savelog(8)
-        candidate = "%s.0" % self.filename
-        if exists(candidate) and exists("%s.1.gz" % self.filename) and \
-                (stat(candidate).st_mtime > stat("%s.1.gz" % self.filename).st_mtime):
+        candidate = self.filename  +'.0'
+        if exists(candidate) and exists(self.filename + '.1.gz') and \
+                (stat(candidate).st_mtime > stat(self.filename + '.1.gz').st_mtime):
             return candidate
 
         # logrotate(8)
-        # with delaycompress
-        candidate = "%s.1" % self.filename
-        if exists(candidate):
-            return candidate
-
-        # without delaycompress
-        candidate = "%s.1.gz" % self.filename
-        if exists(candidate):
-            return candidate
+        candidate_globs = [
+            os.path.join(olddir, log_basename) + ".1",
+            os.path.join(olddir, log_basename) + ".1.[Gg][Zz]",
+            # os.path.join(olddir, log_basename) + ".1.[Bb][Zz]2",
+            # os.path.join(olddir, log_basename) + ".1.[Bb][Zz][Ii][Pp]2",
+            # os.path.join(olddir, log_basename) + ".1.[Xx][Zz]",
+        ]
+        for globbing in candidate_globs:
+            candidates = glob.glob(globbing)
+            if candidates:
+                candidates.sort()
+                return candidates[-1]  # return most recent
 
         rotated_filename_patterns = [
             # logrotate dateext rotation scheme - `dateformat -%Y-%m-%d` + with `delaycompress`
-            "%s-[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]",
+            "-[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]",
             # logrotate dateext rotation scheme - `dateformat -%Y-%m-%d` + without `delaycompress`
-            "%s-[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9].gz",
+            "-[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9].[Gg][Zz]",
+            # "-[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9].[Bb][Zz]2",
+            # "-[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9].[Bb][Zz][Ii][Pp]2",
+            # "-[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9].[Xx][Zz]",
             # logrotate dateext rotation scheme - `dateformat -%Y%m%d` + with `delaycompress`
-            "%s-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]",
+            "-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]",
             # logrotate dateext rotation scheme - `dateformat -%Y%m%d` + without `delaycompress`
-            "%s-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].gz",
+            "-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].[Gg][Zz]",
+            # "-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].[Bb][Zz]2",
+            # "-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].[Bb][Zz][Ii][Pp]2",
+            # "-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].[Xx][Zz]",
             # logrotate dateext rotation scheme - `dateformat -%Y%m%d-%s` + with `delaycompress`
-            "%s-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-"
+            "-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-"
             "[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]",
             # logrotate dateext rotation scheme - `dateformat -%Y%m%d-%s` + without `delaycompress`
-            "%s-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-"
-            "[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].gz",
+            "-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-"
+            "[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].[Gg][Zz]",
+            # "-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-"
+            # "[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].[Bz][Zz]2",
+            # "-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-"
+            # "[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].[Bz][Zz][Ii][Pp]2",
+            # "-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-"
+            # "[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].[Xz[Zz]",
             # for TimedRotatingFileHandler
-            "%s.[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]",
+            ".[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]",
         ]
         if self.log_patterns:
             rotated_filename_patterns.extend(self.log_patterns)
 
-        # break into directory and filename components to support cases where the
-        # the file is prepended as part of rotation
-        file_dir, rel_filename = os.path.split(self.filename)
         for rotated_filename_pattern in rotated_filename_patterns:
-            candidates = glob.glob(os.path.join(file_dir, rotated_filename_pattern % rel_filename))
+            candidates = glob.glob(os.path.join(olddir, log_basename + rotated_filename_pattern))
             if candidates:
                 candidates.sort()
                 return candidates[-1]  # return most recent
