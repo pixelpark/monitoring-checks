@@ -1,0 +1,396 @@
+#!/usr/bin/python3
+# -*- coding: utf-8 -*-
+#
+# Author: Frank Brehm <frank@brehm-online.com
+#         Berlin, Germany, 2023
+# Date:   2023-02-16
+#
+# This module provides a monitoring plugin for checking Postfix logfiles
+#
+from __future__ import print_function
+
+import logging
+import copy
+import os
+
+from pathlib import Path
+
+# Own modules
+
+from monitoring import MonitoringPlugin, DirectoryOptionAction, LogFileOptionAction
+from monitoring import pp
+from pygtail import Pygtail
+from postfix_logsums import PostfixLogParser
+
+__version__ = '0.3.6'
+
+LOG = logging.getLogger(__name__)
+
+
+# =============================================================================
+class CheckPostfixLogPlugin(MonitoringPlugin):
+    """Application class for this plugin."""
+
+    default_offset_dir = Path('/var/tmp')
+    dist_maillogs = [
+        Path('/var/log/maillog'),
+        Path('/var/log/mail.log'),
+        Path('/var/log/syslog.d/mail.log'),
+    ]
+
+    # -------------------------------------------------------------------------
+    def __init__(self):
+        """Constructor."""
+
+        self.logfile = None
+        self.pygtail = None
+        self.pf_parser = None
+        self.offset_dir = self.default_offset_dir
+        self.offset_basename = None
+        self.offset_file = None
+
+        desc = (
+            "Analyzes the entries of the Postfix logfile since the last execution "
+            "of this plugin, generates metrics (performance data) of them and emits "
+            "warnings and critical errors on appropriate logfile entries."
+        )
+
+        super(CheckPostfixLogPlugin, self).__init__(version=__version__, description=desc)
+
+        self.status_msg = 'No lines of Postfix logging found.'
+
+    # --------------------------------------------------------------------------
+    def __del__(self):
+        if self.pygtail:
+            self.pygtail = None
+
+    # -------------------------------------------------------------------------
+    def init_arg_parser(self):
+        """Initializing special command line options for this plugin."""
+        check_group = self.arg_parser.add_argument_group('Options for checking postfix log files')
+
+        check_group.add_argument(
+            '-f', '--file', '--logfile', metavar='FILE', dest='logfile',
+            action=LogFileOptionAction, must_exists=False,
+            help='The postfix logfile to check. If not given, a standard filename is used.'
+        )
+
+        check_group.add_argument(
+            '--offset-dir', metavar='DIR', dest="offset_dir",
+            action=DirectoryOptionAction, must_exists=True, writeable=True,
+            help=(
+                'The directory, which should contain the offset file of the postfix logfile. '
+                'Default: {!r}.').format(str(self.default_offset_dir)),
+        )
+
+        check_group.add_argument(
+            '--copytruncate', dest='copytruncate', action='store_true',
+            help='Support copytruncate-style log rotation.')
+
+        check_group.add_argument(
+            '--log-pattern', dest='logpattern', nargs='*', metavar='GLOB',
+            help=(
+                'Custom log rotation glob pattern. You may use this multiple times '
+                'to provide multiple patterns.'),
+        )
+
+        check_group.add_argument(
+            '--olddir', dest='olddir', metavar='DIR',
+            help="Dirctory containing old rotated logfiles.",
+        )
+
+        check_group.add_argument(
+            '--encoding', dest='encoding', metavar='ENCODING',
+            help='Encoding to use for reading files (default: system encoding).',
+        )
+
+        check_group.add_argument(
+            '-w', '--warning', dest='warning', metavar='WARNINGS', type=int,
+            help=(
+                'Number of warning messages in check interval leading to '
+                'a warning result.')
+        )
+
+        check_group.add_argument(
+            '-c', '--critical', dest='critical', metavar='WARNINGS', type=int,
+            help=(
+                'Number of warning messages in check interval leading to '
+                'a critical result.')
+        )
+
+    # -------------------------------------------------------------------------
+    def post_init(self):
+        """Post initialization tasks."""
+        super(CheckPostfixLogPlugin, self).post_init()
+        self.eval_logfile()
+        self.eval_offset_file()
+        self.init_pygtail()
+        self.init_logparser()
+        self.initialized = True
+
+    # -------------------------------------------------------------------------
+    def eval_logfile(self):
+        """Trying to evaluate the postfix logfile, either by the logfile
+        given via command line option --file or by one of the standard logfiles
+        for different Linux distributions."""
+        possible_logfiles = []
+        if self.args.logfile:
+            possible_logfiles.append(self.args.logfile)
+        possible_logfiles.extend(copy.copy(self.dist_maillogs))
+
+        for logfile in possible_logfiles:
+            if not logfile.exists():
+                LOG.debug("Logfile {!r} does not exists.".format(str(logfile)))
+                continue
+            if not logfile.is_file():
+                LOG.debug("Path {!r} is not a regular file.".format(str(logfile)))
+                continue
+            if not os.access(str(logfile), os.R_OK):
+                LOG.debug("Logfile {!r} is not readable.".format(str(logfile)))
+                continue
+            self.logfile = logfile
+            LOG.debug("Using Postfix logfile {!r}.".format(str(logfile)))
+            return
+
+        self.status_msg = "No usable Postfix logfile found."
+        self.nagios_exit(self.status_unknown, self.status_msg)
+
+    # -------------------------------------------------------------------------
+    def eval_offset_file(self):
+        """Trying to evaluate the complete path to the offset file for pygtail."""
+        log_basename = self.logfile.name
+        self.offset_basename = log_basename + '.offset'
+
+        self.offset_dir = self.default_offset_dir
+        if self.args.offset_dir:
+            self.offset_dir = self.args.offset_dir
+        err_msg = None
+
+        if not self.offset_dir.exists():
+            err_msg = "Directory {!r} for offset file does not exists.".format(
+                str(self.offset_dir))
+        elif not self.offset_dir.is_dir():
+            err_msg = "Path {!r} is not a directory.".format(str(self.offset_dir))
+        elif not os.access(str(self.offset_dir), os.W_OK):
+            err_msg = "Directory {!r} for offset file is not writeable.".format(
+                str(self.offset_dir))
+
+        if err_msg:
+            self.status_msg = err_msg
+            self.nagios_exit(self.status_unknown, err_msg)
+
+        self.offset_file = self.offset_dir / self.offset_basename
+
+        if self.offset_file.exists():
+            if not self.offset_file.is_file():
+                err_msg = "Path {!r} for offset file is not a regular file.".format(
+                    str(self.offset_file))
+            elif not os.access(str(self.offset_file), os.W_OK):
+                err_msg = "Offset file {!r} is not writeable.".format(
+                    str(self.offset_file))
+
+        if err_msg:
+            self.status_msg = err_msg
+            self.nagios_exit(self.status_unknown, err_msg)
+
+    # -------------------------------------------------------------------------
+    def init_pygtail(self):
+        """Initializing the Pygtail-Object for getting the last log entries
+        of Postfix."""
+        keyargs = {
+            'filename': str(self.logfile),
+            'offset_file': str(self.offset_file),
+            'copytruncate': False,
+            'every_n': 0,
+            'full_lines': True,
+            'read_from_end': True,
+            'log_patterns': self.args.logpattern,
+            'encoding': self.args.encoding,
+            'olddir': self.args.olddir,
+        }
+        if self.args.copytruncate:
+            keyargs['copytruncate'] = True
+        if self.verbose > 1:
+            msg = "Arguments on init Pygtail object:\n" + pp(keyargs)
+            LOG.debug(msg)
+
+        self.pygtail = Pygtail(**keyargs)
+
+    # -------------------------------------------------------------------------
+    def init_logparser(self):
+        """Initializing the Postfix logfile parser."""
+        keyargs = {
+            'verbose': self.verbose,
+            'no_no_message_size': True,
+        }
+        if self.args.encoding:
+            keyargs['encoding'] = self.args.encoding
+
+        if self.verbose > 1:
+            msg = "Arguments on init PostfixLogParser object:\n" + pp(keyargs)
+            LOG.debug(msg)
+
+        self.pf_parser = PostfixLogParser(**keyargs)
+        self.pf_parser.results.reset()
+
+    # -------------------------------------------------------------------------
+    def as_dict(self):
+        """
+        Transforms the elements of the object into a dict
+
+        @param short: don't include local properties in resulting dict.
+        @type short: bool
+
+        @return: structure as dict
+        @rtype:  dict
+        """
+        ret = super(CheckPostfixLogPlugin, self).as_dict()
+
+        ret['default_offset_dir'] = self.default_offset_dir
+        ret['dist_maillogs'] = self.dist_maillogs
+        ret['logfile'] = self.logfile
+        ret['offset_basename'] = self.offset_basename
+        ret['offset_dir'] = self.offset_dir
+        ret['offset_file'] = self.offset_file
+        ret['pf_parser'] = None
+        if self.pf_parser:
+            ret['pf_parser'] = self.pf_parser.as_dict()
+        ret['pygtail'] = None
+        if self.pygtail:
+            ret['pygtail'] = self.pygtail.__dict__
+
+        return ret
+
+    # -------------------------------------------------------------------------
+    def run(self):
+        """Execute the main actions of the application."""
+        LOG.debug("I'm walking, yes indeed, I'm walking....")
+
+        i = 0
+        for line in self.pygtail:
+            i += 1
+            self.pf_parser.eval_line(line)
+
+        self.status = self.status_ok
+        self.status_msg = "All postfix logs seems to be okay."
+
+        if i > 1:
+            LOG.debug("Got {} lines of postfix logging.".format(i))
+        elif i == 1:
+            LOG.debug("Got one line of postfix logging.")
+        else:
+            LOG.debug("Got no lines of postfix logging.")
+
+        if self.verbose > 1:
+            LOG.info('Result of parsing:\n' + pp(self.pf_parser.results.as_dict()))
+
+        self.eval_results(self.pf_parser.results)
+
+        self.pygtail = None
+
+    # -------------------------------------------------------------------------
+    def eval_results(self, results):
+        """Evaluate results from parsed logfiles."""
+        self.add_perfdata('lines', results.lines_considered, min_data=0)
+
+        self.add_perfdata('received', results.msgs_total.received, min_data=0)
+        self.add_perfdata('delivered', results.msgs_total.delivered, min_data=0)
+        self.add_perfdata('forwarded', results.msgs_total.forwarded, min_data=0)
+        self.add_perfdata('deferred', results.msgs_total.deferred, min_data=0)
+        self.add_perfdata('bounced', results.msgs_total.bounced, min_data=0)
+        self.add_perfdata('rejected', results.msgs_total.rejected, min_data=0)
+        self.add_perfdata('rejectwarnings', results.msgs_total.reject_warning, min_data=0)
+        self.add_perfdata('held', results.msgs_total.held, min_data=0)
+        self.add_perfdata('discarded', results.msgs_total.discarded, min_data=0)
+        self.add_perfdata('mastermessages', results.msgs_total.master, min_data=0)
+        self.add_perfdata('bytesreceived', results.msgs_total.bytes_received, uom='Bytes', min_data=0)
+        self.add_perfdata('bytesdelivered', results.msgs_total.bytes_delivered, uom='Bytes', min_data=0)
+
+        self.eval_warnings(results)
+        self.eval_errors(results)
+
+    # -------------------------------------------------------------------------
+    def eval_warnings(self, results):
+        """Evaluating warning messages."""
+        warnings = 0
+        for cmd in results.warnings.keys():
+            for msg in results.warnings[cmd].keys():
+                warnings += results.warnings[cmd][msg]
+        self.add_perfdata(
+            'warnings', warnings, warning=self.args.warning, critical=self.args.critical,
+            min_data=0)
+
+        if warnings:
+            s = ''
+            if warnings > 1:
+                s = 's'
+            append = 'Found {nr} warning message{s}.'.format(nr=warnings, s=s)
+            if self.status == self.status_ok:
+                self.status_msg = append
+            elif self.status_msg:
+                self.status_msg += ' ' + append
+            else:
+                self.status_msg = append
+
+        if self.args.critical:
+            if warnings > self.args.critical:
+                self.status = self.status_critical
+        if self.args.warning:
+            if warnings > self.args.warning and self.status == self.status_ok:
+                self.status = self.status_warning
+
+    # -------------------------------------------------------------------------
+    def eval_errors(self, results):
+        """Evaluating fatal and panic messages."""
+        panics = 0
+        for cmd in results.panics.keys():
+            for msg in results.panics[cmd].keys():
+                panics += results.panics[cmd][msg]
+        self.add_perfdata('panics', panics, critical=1, min_data=0)
+
+        fatals = 0
+        for cmd in results.fatals.keys():
+            for msg in results.fatals[cmd].keys():
+                fatals += results.fatals[cmd][msg]
+        self.add_perfdata('fatals', fatals, critical=1, min_data=0)
+
+        if panics or fatals:
+            self.status = self.status_critical
+            what = []
+            if panics:
+                what.append('panic')
+            if fatals:
+                what.append('fatal')
+
+            apend = 'Found ' + ' and '.join(what) + ' messages.'
+            if self.status == self.status_ok:
+                self.status_msg = append
+            elif self.status_msg:
+                self.status_msg += ' ' + append
+            else:
+                self.status_msg = append
+
+    # -------------------------------------------------------------------------
+    def exit(self, status=None, message=None, no_status_line=False):
+        """Exit the app with given status code and status message."""
+        if self.pygtail:
+            self.pygtail = None
+        super(CheckPostfixLogPlugin, self).exit(status, message, no_status_line)
+
+    # -------------------------------------------------------------------------
+    def nagios_exit(self, status_code, status_msg):
+        """Exit the app with given status code and status message."""
+        if self.pygtail:
+            self.pygtail = None
+        super(CheckPostfixLogPlugin, self).nagios_exit(status_code, status_msg)
+
+
+# =============================================================================
+
+if __name__ == "__main__":
+    plugin = CheckPostfixLogPlugin()
+    plugin()
+
+# =============================================================================
+
+# vim: tabstop=4 expandtab shiftwidth=4 softtabstop=4
