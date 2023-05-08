@@ -34,8 +34,9 @@ import bz2
 import lzma
 import io
 import re
+import logging
 
-__version__ = '0.16.1'
+__version__ = '0.16.2'
 
 PY3 = sys.version_info[0] == 3
 
@@ -43,6 +44,8 @@ if PY3:
     text_type = str
 else:
     text_type = unicode                             # noqa
+
+LOG = logging.getLogger(__name__)
 
 
 # ==============================================================================
@@ -155,7 +158,7 @@ class Pygtail(object):
         self.full_lines = full_lines
         self.save_on_end = save_on_end
         self.encoding = encoding
-        self.olddir = None
+        self.olddir = olddir
         self.offset_file = offset_file or "%s.offset" % self.filename
         self.offset_file_inode = 0
         self.offset = 0
@@ -166,6 +169,7 @@ class Pygtail(object):
 
         # if offset file exists and non-empty, open and parse it
         if exists(self.offset_file) and getsize(self.offset_file):
+            LOG.debug("Reading offset file {!r} ...".format(self.offset_file))
             offset_fh = open(self.offset_file, "r")
             (self.offset_file_inode, self.offset) = \
                 [int(line.strip()) for line in offset_fh]
@@ -176,11 +180,12 @@ class Pygtail(object):
                 # might have been rotated.
                 # Look for the rotated file and process that if we find it.
                 self.rotated_logfile = self._determine_rotated_logfile()
+                LOG.debug("Determined rotated logfile: {!r}.".format(self.rotated_logfile))
                 # If copytruncate is enabled and we can't find the rotated logfile,
                 # all we can do is reset.
                 if self.copytruncate and self.rotated_logfile is None:
-                    msg = "[pygtail] [WARN] log file was rotated to unknown location. Resetting."
-                    sys.stderr.write(msg + "\n")
+                    msg = "Log file was rotated to unknown location. Resetting."
+                    LOG.warn(msg)
                     self.offset = 0
                     self.update_offset_file()
 
@@ -280,6 +285,7 @@ class Pygtail(object):
         if not self.fh or self._is_closed():
             self._counter += 1
             filename = self.rotated_logfile or self.filename
+            LOG.debug("Reading logfile {!r} ...".format(filename))
             if self.re_gzipfile.search(filename):
                 self.fh = gzip.open(filename, 'r')
             elif self.re_bzip2file.search(filename):
@@ -304,6 +310,7 @@ class Pygtail(object):
         """
         if self.on_update:
             self.on_update()
+        LOG.debug("Updating offset file {!r} ...".format(self.offset_file))
         offset = self._filehandle().tell()
         inode = fstat(self._filehandle().fileno()).st_ino
         fh = open(self.offset_file, "w")
@@ -316,6 +323,7 @@ class Pygtail(object):
         """Writes an `Offset` to the offset file"""
         if self.on_update:
             self.on_update()
+        LOG.debug("Writing offset file {!r} ...".format(self.offset_file))
         fh = open(self.offset_file, "w")
         fh.write("%s\n%s\n" % (offset.inode, offset.offset))
         fh.close()
@@ -327,7 +335,9 @@ class Pygtail(object):
         rotated filename is, and return it.
         """
         rotated_filename = self._check_rotated_filename_candidates()
+        LOG.debug("Checked rotated logfile: {!r}.".format(rotated_filename))
         if rotated_filename and exists(rotated_filename):
+            LOG.debug("Using rotated logfile {!r}.".format(rotated_filename))
             if stat(rotated_filename).st_ino == self.offset_file_inode:
                 return rotated_filename
 
@@ -337,10 +347,10 @@ class Pygtail(object):
                 if self.copytruncate:
                     return rotated_filename
                 else:
-                    sys.stderr.write(
-                        "[pygtail] [WARN] file size of %s shrank, and copytruncate support is "
-                        "disabled (expected at least %d bytes, was %d bytes).\n" %
-                        (self.filename, self.offset, stat(self.filename).st_size))
+                    LOG.warn((
+                        "The file size of {f!r} shrank, and copytruncate support is "
+                        "disabled (expected at least {e} bytes, was {w} bytes.").format(
+                        f=self.filename, e=self.offset, w=stat(self.filename).st_size))
 
         return None
 
@@ -370,6 +380,7 @@ class Pygtail(object):
 
         # savelog(8)
         candidate = self.filename  +'.0'
+        LOG.debug("Searching for logrotate candidate {!r}.".format(candidate))
         if exists(candidate) and exists(self.filename + '.1.gz') and \
                 (stat(candidate).st_mtime > stat(self.filename + '.1.gz').st_mtime):
             return candidate
@@ -383,6 +394,7 @@ class Pygtail(object):
             os.path.join(olddir, log_basename) + ".1.[Xx][Zz]",
         ]
         for globbing in candidate_globs:
+            LOG.debug("Searching for logrotate candidate glob {!r}.".format(globbing))
             candidates = glob.glob(globbing)
             if candidates:
                 candidates.sort()
@@ -422,7 +434,9 @@ class Pygtail(object):
             rotated_filename_patterns.extend(self.log_patterns)
 
         for rotated_filename_pattern in rotated_filename_patterns:
-            candidates = glob.glob(os.path.join(olddir, log_basename + rotated_filename_pattern))
+            lf_name_pattern = os.path.join(olddir, log_basename + rotated_filename_pattern)
+            LOG.debug("Searching for logrotate candidate glob {!r}.".format(lf_name_pattern))
+            candidates = glob.glob(lf_name_pattern)
             if candidates:
                 candidates.sort()
                 return candidates[-1]  # return most recent
