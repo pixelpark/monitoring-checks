@@ -20,10 +20,14 @@ options = {
   day_end: '24:00',
   holiday_date: [],
   skip_weekday: [],
+  date_range: true,
 }
 optparse = OptionParser.new do |opts|
   opts.on('--[no-]invert',
     'Get everyday without holidays',
+  ) { |i| options[:invert] = i }
+  opts.on('--[no-]date-range',
+    'Uses date ranges instead of an entry for each day',
   ) { |i| options[:invert] = i }
   opts.on('--holiday-date DATE', String,
     'A holiday date that be added to the list of holidays',
@@ -45,6 +49,20 @@ end.parse!
 
 api_key = ARGV[0]
 year    = ARGV[1].to_i
+
+def to_date_ranges(a)
+  prev = Date.parse(a[0])
+  a.slice_before { |e|
+    prev, prev2 = Date.parse(e), prev
+    prev2.succ != prev
+  }.map { |es|
+    if es.first == es.last
+      es.first
+    else
+      "#{es.first} - #{es.last}"
+    end
+  }
+end
 
 def get_json(api_key, type, year)
   uri = URI.parse("https://calendarific.com/api/v2/holidays?&api_key=#{api_key}&country=DE&year=#{year}&location=de-be&type=#{type}")
@@ -74,7 +92,7 @@ holiday_all.sort!
 if options[:invert]
   duty_object = { 'duty' => { 'display_name' => 'Duty plan without holidays', 'ranges' => {} } }
 
-  day_of_year = (Date.new(year) .. Date.new(year).next_year.prev_day).map { |day|
+  day_of_year = (Date.new(year) ... Date.new(year).next_year).map { |day|
     if options[:skip_weekday].include?(day.wday)
       nil
     else
@@ -83,6 +101,8 @@ if options[:invert]
   }.compact!
   day_of_year -= holiday_all
   day_of_year -= options[:holiday_date]
+
+  day_of_year = to_date_ranges(day_of_year)
 
   day_of_year.each { |day| duty_object['duty']['ranges'][day] = "#{options[:day_begin]}-#{options[:day_end]}" }
 
