@@ -9,43 +9,39 @@ require 'uri'
 require 'json'
 
 # get environment variables
-icinga2_host   = ENV['ICINGA_HOST']
-rc_webhook     = ENV['RC_WEBHOOK']
+icinga2_host   = ENV.fetch('ICINGA_HOST')
+rc_webhook     = ENV.fetch('RC_WEBHOOK')
 
-h_display      = ENV['HOSTDISPLAYNAME']
-h_name         = ENV['HOSTNAME']
+h_display      = ENV.fetch('HOSTDISPLAYNAME')
+h_name         = ENV.fetch('HOSTNAME')
 
-s_display      = ENV['SERVICEDISPLAYNAME']
-s_output       = ENV['SERVICEOUTPUT']
-s_state        = ENV['SERVICESTATE']
+s_display      = ENV.fetch('SERVICEDISPLAYNAME')
+s_output       = ENV.fetch('SERVICEOUTPUT')
+s_state        = ENV.fetch('SERVICESTATE')
 
-n_author       = ENV['NOTIFICATIONAUTHORNAME']
-n_comment      = ENV['NOTIFICATIONCOMMENT']
-n_type         = ENV['NOTIFICATIONTYPE']
+n_author       = ENV.fetch('NOTIFICATIONAUTHORNAME')
+n_comment      = ENV.fetch('NOTIFICATIONCOMMENT')
+n_type         = ENV.fetch('NOTIFICATIONTYPE')
 
-debug          = ENV['DEBUG']
-header         = {'Content-Type': 'text/json'}
+debug          = ENV.fetch('DEBUG')
+header         = { 'Content-Type': 'text/json' }
 log_file       = '/var/log/icinga2/rocketchat-service-notification.log'
-long_date_time = ENV['LONGDATETIME']
+long_date_time = ENV.fetch('LONGDATETIME')
 
-case s_state
-when "CRITICAL"
-  icon = ":rotating_light:"
-when "WARNING"
-  icon = ":warning:"
-when "OK"
-  icon = ":white_check_mark:"
-when "UNKNOWN"
-  icon = ":question:"
-else
-  icon = ":white_medium_square:"
+icon = case s_state
+  when 'CRITICAL'
+    ':rotating_light:'
+  when 'WARNING'
+    ':warning:'
+  when 'OK'
+    ':white_check_mark:'
+  when 'UNKNOWN'
+    ':question:'
+  else
+    ':white_medium_square:'
 end
 
-unless n_comment.empty?
-  comment_message = "*Comment*: #{n_author}: #{n_comment} |"
-else
-  comment_message = ''
-end
+comment_message = n_comment.empty? ? '' : "*Comment*: #{n_author}: #{n_comment} |"
 
 # Send message to Rocket.Chat
 payload = {
