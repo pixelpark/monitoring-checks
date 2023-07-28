@@ -1,9 +1,5 @@
 #!/opt/puppetlabs/puppet/bin/ruby
 
-# Author: Robert Waffen <robert.waffen@pixelpark.com>
-# Date:   2020-04-01
-# Updated by Vasko Mihaylov on 2023-06-26 for Mattermost
-
 require 'net/http'
 require 'net/https'
 require 'uri'
@@ -11,104 +7,213 @@ require 'json'
 require 'optparse'
 require 'logger'
 
-@options = {}
+options = {}
 
-OptionParser.new do |opts|
-  opts.on("--custom_message=CUSTOM_MESSAGE")                   { |custom_message|           @options[:custom_message]           = custom_message }
-  opts.on("--hostname=HOSTNAME")                               { |hostname|                 @options[:hostname]                 = hostname }
-  opts.on("--hostoutput=HOSTOUTPUT")                           { |hostoutput|               @options[:hostoutput]               = hostoutput }
-  opts.on("--icinga2_host=ICINGA_HOST")                        { |icinga2_host|             @options[:icinga2_host]             = icinga2_host }
-  opts.on("--long_date_time=LONGDATETIME")                     { |long_date_time|           @options[:long_date_time]           = long_date_time }
-  opts.on("--notification_author_name=NOTIFICATIONAUTHORNAME") { |notification_author_name| @options[:notification_author_name] = notification_author_name }
-  opts.on("--notification_comment=NOTIFICATIONCOMMENT")        { |notification_comment|     @options[:notification_comment]     = notification_comment }
-  opts.on("--notification_type=NOTIFICATIONTYPE")              { |notification_type|        @options[:notification_type]        = notification_type }
-  opts.on("--mm_webhook=MM_WEBHOOK")                           { |mm_webhook|               @options[:mm_webhook]               = mm_webhook }
-  opts.on("--reason=REASON")                                   { |reason|                   @options[:reason]                   = reason }
-  opts.on("--servicename=SERVICENAME")                         { |servicename|              @options[:servicename]              = servicename }
-  opts.on("--serviceoutput=SERVICEOUTPUT")                     { |serviceoutput|            @options[:serviceoutput]            = serviceoutput }
-  opts.on("--state=STATE")                                     { |state|                    @options[:state]                    = state }
-  opts.on("--type=TYPE")                                  { |type|                     @options[:type]                     = type }
-end.parse!
-
-custom_message           = @options[:custom_message]
-hostname                 = @options[:hostname]
-hostoutput               = @options[:hostoutput]
-# hostoutput               = ENV['HOSTOUTPUT']
-icinga2_host             = @options[:icinga2_host]
-long_date_time           = @options[:long_date_time]
-notification_author_name = @options[:notification_author_name]
-notification_comment     = @options[:notification_comment]
-notification_type        = @options[:notification_type]
-mm_webhook               = @options[:mm_webhook]
-reason                   = @options[:reason]
-servicename              = @options[:servicename]
-serviceoutput            = @options[:serviceoutput]
-# serviceoutput            = ENV['SERVICEOUTPUT']
-state                    = @options[:state]
-type                     = @options[:type]
-
-header                   = {'Content-Type': 'text/json'}
-# Create a new logger that writes to log file
-logger = Logger.new('/var/log/icinga2/mattermost-better-write.log')
-
-if notification_comment.nil?
-  comment_message = ''
-else
-  comment_message = "*Comment*: #{notification_author_name}: #{notification_comment} |"
+# primary usage is via ENV variables to hide ARGS in ps view
+%w[
+  HOSTDISPLAYNAME
+  HOSTNAME
+  SERVICEDISPLAYNAME
+  SERVICENAME
+  STATE
+  OUTPUT
+  NOTIFICATIONAUTHORNAME
+  NOTIFICATIONCOMMENT
+  NOTIFICATIONTYPE
+  ICINGA_HOST
+  WEBHOOK
+].each do |key|
+  options[key.downcase.to_sym] = ENV.fetch(key) if ENV.include?(key)
 end
 
-case type
-when "host"
-  icon = ":white_medium_square:"
-  icon = ":rotating_light:"   if state == 'DOWN'
-  icon = ":white_check_mark:" if state == 'UP'
-  message = "#{icon} #{notification_type} | *<https://#{icinga2_host}/monitoring/host/show?host=#{hostname} | #{hostname}>*: [#{state}] | #{comment_message} *Output*: ```#{hostoutput}```"
-when "service"
-  icon = ":white_medium_square:"
-  icon = ":rotating_light:"   if state == 'CRITICAL'
-  icon = ":warning:"          if state == 'WARNING'
-  icon = ":white_check_mark:" if state == 'OK'
-  icon = ":question:"         if state == 'UNKNOWN'
-  message = "#{icon} #{notification_type} | * `#{hostname}` - [#{servicename}](https://#{icinga2_host}/monitoring/service/show?host=#{hostname}&service=#{servicename})*: [#{state}] | #{comment_message} *Output*: ```#{serviceoutput}```"
-when "telefon"
-  icon = ":telephone:"
-  message = "#{icon} #{type.upcase} | Send call for `#{hostname}`: [#{state}]" if reason == 'host_alert'
-  message = "#{icon} #{type.upcase} | Send call for *`#{hostname}` - #{servicename}*: [#{state}]" if reason == 'service_alert'
-  message = ":telephone_receiver: #{type.upcase} | Delayed call for `#{hostname}`: [#{state}]" if reason == 'host_delay'
-  message = ":telephone_receiver: #{type.upcase} | Delayed call for *`#{hostname}` - #{servicename}*: [#{state}]" if reason == 'service_delay'
-when "restart"
-  icon = ":recycle:"
-  message = "#{icon} #{type.upcase} | Restarting Service *#{servicename}* on `#{hostname}`"
-when "custom"
-  message = "#{icon} #{type.upcase} | #{custom_message}"
+OptionParser.new do |opts|
+  opts.on('--custom_message=CUSTOM_MESSAGE')                 { |custom_message|         options[:custom_message]         = custom_message }
+  opts.on('--hostdisplayname=HOSTDISPLAYNAME')               { |hostdisplayname|        options[:hostdisplayname]        = hostdisplayname }
+  opts.on('--hostname=HOSTNAME')                             { |hostname|               options[:hostname]               = hostname }
+  opts.on('--icinga_host=ICINGA_HOST')                       { |icinga_host|            options[:icinga_host]            = icinga_host }
+  opts.on('--notificationauthorname=NOTIFICATIONAUTHORNAME') { |notificationauthorname| options[:notificationauthorname] = notificationauthorname }
+  opts.on('--notificationcomment=NOTIFICATIONCOMMENT')       { |notificationcomment|    options[:notificationcomment]    = notificationcomment }
+  opts.on('--notificationtype=NOTIFICATIONTYPE')             { |notificationtype|       options[:notificationtype]       = notificationtype.upcase }
+  opts.on('--webhook=WEBHOOK')                               { |webhook|                options[:webhook]                = webhook }
+  opts.on('--reason=REASON')                                 { |reason|                 options[:reason]                 = reason }
+  opts.on('--servicedisplayname=SERVICEDISPLAYNAME')         { |servicedisplayname|     options[:servicedisplayname]     = servicedisplayname }
+  opts.on('--servicename=SERVICENAME')                       { |servicename|            options[:servicename]            = servicename }
+  opts.on('--output=OUTPUT')                                 { |output|                 options[:output]                 = output }
+  opts.on('--state=STATE')                                   { |state|                  options[:state]                  = state.upcase }
+  opts.on('--type=TYPE',
+          'Really only needed for restart, otherwise it is automatically detected.') { |type| options[:type]             = type.upcase }
+  opts.on('--username=USERNAME')                             { |username|               options[:username]               = username }
+  opts.on('--icon_emoji=STRING')                             { |icon_emoji|             options[:icon_emoji]             = icon_emoji }
+  opts.on('--debug')                                         { |debug|                  options[:debug]                  = debug }
+end.parse!
+
+# Logger setup
+@logger = Logger.new('/var/log/icinga2/mattermost-better-write.log')
+@logger.progname = "#{File.basename($PROGRAM_NAME)}[#{Process.pid}]"
+@logger.level = options.include?(:debug) ? Logger::DEBUG : Logger::INFO
+
+# The same message creation code from the original script
+comment_message = if options[:notificationcomment].nil?
+                    ''
+                  else
+                    "*Comment*: #{options[:notificationauthorname]}: #{options[:notificationcomment]} |"
+                  end
+
+unless options.include?(:type)
+  options[:type] = if options.include?(:reason) && !options[:reason].empty?
+                     'TELEFON'
+                   elsif options.include?(:servicename) && !options[:servicename].empty?
+                     'SERVICE'
+                   elsif options.include?(:hostname) && !options[:hostname].empty?
+                     'HOST'
+                   elsif options.include?(:custom_message) && !options[:custom_message].empty?
+                     'CUSTOM'
+                   end
+end
+
+msg_host = if options.include?(:hostdisplayname) && !options[:hostdisplayname].empty?
+             options[:hostdisplayname]
+           else
+             options[:hostname]
+           end
+msg_service = if options.include?(:servicedisplayname) && !options[:servicedisplayname].empty?
+                options[:servicedisplayname]
+              elsif options.include?(:servicename) && !options[:servicename].empty?
+                options[:servicename]
+              end
+
+case options[:type]
+when 'HOST', 'SERVICE'
+  options[:icon_emoji] = ':icinga:' unless options.include?(:icon_emoji)
+  icon = case options[:notificationtype]
+         when 'ACKNOWLEDGEMENT'
+           ':heavy_check_mark:'
+         when 'CUSTOM'
+           ':speaker:'
+         when 'FlappingStart', 'FlappingEnd'
+           ':loop:'
+         when 'DowntimeStart', 'DowntimeEnd', 'DowntimeRemoved'
+           ':electric_plug: '
+         else
+           case options[:state]
+           when 'CRITICAL', 'DOWN'
+             ':rotating_light:'
+           when 'WARNING'
+             ':warning:'
+           when 'OK', 'UP'
+             ':white_check_mark:'
+           when 'UNKNOWN'
+             ':question:'
+           else
+             ':white_medium_square:'
+           end
+         end
+
+  message = "#{icon} #{options[:notificationtype]} | "
+  message += if options.include?(:icinga_host)
+               '[**'
+             else
+               '`'
+             end
+  message += msg_host
+  message += " - #{msg_service}" unless msg_service.nil?
+  message += if options.include?(:icinga_host)
+               "**](https://#{options[:icinga_host]}/monitoring/host/show?host=#{options[:hostname]}#{options.include?(:servicename) ? "&service=#{options[:servicename]}" : ''})"
+             else
+               '`'
+             end
+  message += ": #{options[:state]}"
+  message += " | #{comment_message}" unless comment_message.empty?
+  message += "\n ```\n#{options[:output]}\n```" if options.include?(:output) && !options[:output].empty?
+when 'TELEFON'
+  options[:icon_emoji] = ':icinga:' unless options.include?(:icon_emoji)
+  icon = case options[:reason]
+         when 'host_alert', 'service_alert', 'alert'
+           ':telephone:'
+         when 'host_delay', 'service_delay', 'delay'
+           ':telephone_receiver:'
+         else  # rubocop:disable Lint/DuplicateBranch
+           ':telephone:'
+         end
+
+  message = "#{icon} #{options[:type]} | "
+  message += case options[:reason]
+             when 'host_delay', 'service_delay', 'delay'
+               'Delayed'
+             else
+               'Send'
+             end
+  message += ' call for '
+  message += if options.include?(:icinga_host)
+               '[**'
+             else
+               '`'
+             end
+  message += msg_host
+  message += " - #{msg_service}" unless msg_service.nil?
+  message += if options.include?(:icinga_host)
+               "**](https://#{options[:icinga_host]}/monitoring/host/show?host=#{options[:hostname]}#{options.include?(:servicename) ? "&service=#{options[:servicename]}" : ''})"
+             else
+               '`'
+             end
+  message += if options.include?(:notificationtype) && options[:notificationtype].upcase == 'CUSTOM'
+               ": custom notification by `#{options[:notificationauthorname]}` with `#{options[:notificationcomment]}`"
+             else
+               ": #{options[:state]}"
+             end
+when 'RESTART'
+  options[:icon_emoji] = ':icinga:' unless options.include?(:icon_emoji)
+  message = ":recycle: #{options[:type]} | Restarting Service "
+  message += if options.include?(:icinga_host)
+               '[**'
+             else
+               '`'
+             end
+  message += msg_service
+  message += if options.include?(:icinga_host)
+               '** on **'
+             else
+               '` on `'
+             end
+  message += msg_host
+  message += if options.include?(:icinga_host)
+               "**](https://#{options[:icinga_host]}/monitoring/host/show?host=#{options[:hostname]}&service=#{options[:servicename]})"
+             else
+               '`'
+             end
+when 'CUSTOM'
+  message = options[:custom_message]
 end
 
 payload = {
-  icon_emoji: ":icinga:",
   text: message
 }
 
-# Log the payload
-logger.info("Payload: #{payload.to_json}")
+payload[:icon_emoji] = options[:icon_emoji] if options.include?(:icon_emoji) && !options[:icon_emoji].empty?
+payload[:username]   = options[:username] if options.include?(:username) && !options[:username].empty?
+payload[:username]   = options[:icinga_host] if options.include?(:icinga_host) && !payload.include?(:username)
+payload = payload.to_json
 
 begin
-    # Create the HTTP objects
-    uri = URI.parse(mm_webhook)
-    https = Net::HTTP.new(uri.host, uri.port)
-    https.use_ssl = true
-  
-    # Create a new POST request
-    req = Net::HTTP::Post.new(uri.path)
-    # Set the request body to JSON string
-    req.body = payload.to_json
-    # Set the 'Content-Type' header to 'application/json'
-    req['Content-Type'] = 'application/json'
-    # Send the request
-    resp = https.request req
-  
-    # Log the response
-    logger.info("Response: #{resp.body}")
-  rescue StandardError => e
-    # Log any errors
-    logger.error("Error: #{e.message}")
+  uri = URI.parse(options[:webhook])
+  https = Net::HTTP.new(uri.host, uri.port)
+  https.use_ssl = true
+
+  req = Net::HTTP::Post.new(
+    uri.path,
+    {
+      'Content-Type' => 'application/json',
+      'Accept' => 'application/json'
+    }
+  )
+  req.body = payload
+
+  resp = https.request(req)
+  if resp.is_a?(Net::HTTPSuccess)
+    @logger.debug "Successful send message to Mattermost: #{payload.dump}"
+  else
+    @logger.error "Failed to send message to Mattermost: #{payload.dump}"
+  end
+rescue StandardError => e
+  @logger.fatal "Error while sending message to Mattermost: #{e.message}"
 end
