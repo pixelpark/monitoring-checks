@@ -28,8 +28,10 @@ share/python-wheels/
 MANIFEST
 
 # Ruby stuff
-.bundle/
-vendor/
+/.bundle/
+/vendor/
+/Gemfile.local
+/Gemfile.lock
 
 # PyInstaller
 #  Usually these files are written by a python script from a template

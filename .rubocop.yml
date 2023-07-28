@@ -1,3 +1,5 @@
+inherit_from: .rubocop_todo.yml
+
 require:
   - rubocop-rake
 
@@ -14,7 +16,7 @@ Style/FrozenStringLiteralComment:
   Enabled: false
 ## end customized cops
 
-Gemspec/DateAssignment: # new in 1.10
+Gemspec/DeprecatedAttributeAssignment: # new in 1.10
   Enabled: true
 Gemspec/RequireMFA: # new in 1.23
   Enabled: true
