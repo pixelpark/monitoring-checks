@@ -53,11 +53,7 @@ end.parse!
 @logger.level = options.include?(:debug) ? Logger::DEBUG : Logger::INFO
 
 # The same message creation code from the original script
-comment_message = if options[:notificationcomment].nil?
-                    ''
-                  else
-                    "*Comment*: #{options[:notificationauthorname]}: #{options[:notificationcomment]} |"
-                  end
+comment_message = "*Comment*: #{options[:notificationauthorname]}: #{options[:notificationcomment]} |" if options.include?(:notificationcomment) && !options[:notificationcomment].empty?
 
 unless options.include?(:type)
   options[:type] = if options.include?(:reason) && !options[:reason].empty?
@@ -90,9 +86,9 @@ when 'HOST', 'SERVICE'
            ':heavy_check_mark:'
          when 'CUSTOM'
            ':speaker:'
-         when 'FlappingStart', 'FlappingEnd'
+         when 'FLAPPINGSTART', 'FLAPPINGEND'
            ':loop:'
-         when 'DowntimeStart', 'DowntimeEnd', 'DowntimeRemoved'
+         when 'DOWNTIMESTART', 'DOWNTIMEEND', 'DOWNTIMEREMOVED'
            ':electric_plug: '
          else
            case options[:state]
@@ -123,7 +119,7 @@ when 'HOST', 'SERVICE'
                '`'
              end
   message += ": #{options[:state]}"
-  message += " | #{comment_message}" unless comment_message.empty?
+  message += " | #{comment_message}" unless comment_message.nil?
   message += "\n ```\n#{options[:output]}\n```" if options.include?(:output) && !options[:output].empty?
 when 'TELEFON'
   options[:icon_emoji] = ':icinga:' unless options.include?(:icon_emoji)
