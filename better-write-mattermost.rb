@@ -114,7 +114,11 @@ when 'HOST', 'SERVICE'
   message += msg_host
   message += " - #{msg_service}" unless msg_service.nil?
   message += if options.include?(:icinga_host)
-               "**](https://#{options[:icinga_host]}/monitoring/host/show?host=#{options[:hostname]}#{options.include?(:servicename) ? "&service=#{options[:servicename]}" : ''})"
+               if options.include?(:servicename)
+                 "**](https://#{options[:icinga_host]}/monitoring/service/show?host=#{options[:hostname]}&service=#{options[:servicename]})"
+               else
+                 "**](https://#{options[:icinga_host]}/monitoring/host/show?host=#{options[:hostname]})"
+               end
              else
                '`'
              end
@@ -148,7 +152,11 @@ when 'TELEFON'
   message += msg_host
   message += " - #{msg_service}" unless msg_service.nil?
   message += if options.include?(:icinga_host)
-               "**](https://#{options[:icinga_host]}/monitoring/host/show?host=#{options[:hostname]}#{options.include?(:servicename) ? "&service=#{options[:servicename]}" : ''})"
+               if options.include?(:servicename)
+                 "**](https://#{options[:icinga_host]}/monitoring/service/show?host=#{options[:hostname]}&service=#{options[:servicename]})"
+               else
+                 "**](https://#{options[:icinga_host]}/monitoring/host/show?host=#{options[:hostname]})"
+               end
              else
                '`'
              end
@@ -173,7 +181,7 @@ when 'RESTART'
              end
   message += msg_host
   message += if options.include?(:icinga_host)
-               "**](https://#{options[:icinga_host]}/monitoring/host/show?host=#{options[:hostname]}&service=#{options[:servicename]})"
+               "**](https://#{options[:icinga_host]}/monitoring/service/show?host=#{options[:hostname]}&service=#{options[:servicename]})"
              else
                '`'
              end
