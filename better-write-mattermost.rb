@@ -53,8 +53,6 @@ end.parse!
 @logger.level = options.include?(:debug) ? Logger::DEBUG : Logger::INFO
 
 # The same message creation code from the original script
-comment_message = "*Comment*: #{options[:notificationauthorname]}: #{options[:notificationcomment]} |" if options.include?(:notificationcomment) && !options[:notificationcomment].empty?
-
 unless options.include?(:type)
   options[:type] = if options.include?(:reason) && !options[:reason].empty?
                      'TELEFON'
@@ -123,7 +121,7 @@ when 'HOST', 'SERVICE'
                '`'
              end
   message += ": #{options[:state]}"
-  message += " | #{comment_message}" unless comment_message.nil?
+  message += " | *Comment* by `#{options[:notificationauthorname]}`: `#{options[:notificationcomment]}`" if options.include?(:notificationcomment) && !options[:notificationcomment].empty?
   message += "\n ```\n#{options[:output]}\n```" if options.include?(:output) && !options[:output].empty?
 when 'TELEFON'
   options[:icon_emoji] = ':icinga:' unless options.include?(:icon_emoji)
