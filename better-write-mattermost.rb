@@ -122,7 +122,15 @@ when 'HOST', 'SERVICE'
              end
   message += ": #{options[:state]}"
   message += " | *Comment* by `#{options[:notificationauthorname]}`: `#{options[:notificationcomment]}`" if options.include?(:notificationcomment) && !options[:notificationcomment].empty?
-  message += "\n ```\n#{options[:output]}\n```" if options.include?(:output) && !options[:output].empty?
+  if options.include?(:output) && !options[:output].empty?
+    # mattermost has a message length of 16383 chars
+    output = if options[:output].length > 14000
+               options[:output][0..14000] + "\n[truncated after 14000 characters]"
+             else
+               options[:output]
+             end
+    message += "\n ```\n#{output}\n```" 
+  end
 when 'TELEFON'
   options[:icon_emoji] = ':icinga:' unless options.include?(:icon_emoji)
   icon = case options[:reason]
