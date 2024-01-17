@@ -1,0 +1,279 @@
+#!/bin/bash
+
+# Script for checking, whether a given IP address or hostname is blacklisted somewhere
+
+# Author: Frank Brehm <frank@brehm-online.com>
+
+set -e
+set -u
+
+VERSION='0.1.0'
+
+DESCRIPTION=$( cat <<-EOF
+	This is a check script for Nagios/Icinga to check, 
+	whether the given host or IP address is listed in one or more
+	Domain Name System blocklist.
+	EOF
+)
+
+BASE_NAME="$( basename ${0} )"
+
+declare -a BLACKLISTS=(
+    'b.barracudacentral.org'
+    'bl.spamcannibal.org'
+    'blacklist.woody.ch'
+    'cdl.anti-spam.org.cn'
+    'db.wpbl.info'
+    'dnsbl.inps.de'
+    'drone.abuse.ch'
+    'dul.dnsbl.sorbs.net'
+    'dynip.rothen.com'
+    'images.rbl.msrbl.net'
+    'korea.services.net'
+    'ohps.dnsbl.net.au'
+    'osps.dnsbl.net.au'
+    'owps.dnsbl.net.au'
+    'probes.dnsbl.net.au'
+    'psbl.surriel.com'
+    'relays.bl.gweep.ca'
+    'residential.block.transip.nl'
+    'sbl.spamhaus.org'
+    'socks.dnsbl.sorbs.net'
+    'spam.rbl.msrbl.net'
+    'spamrbl.imp.ch'
+    'tor.dnsbl.sectoor.de'
+    'ubl.unsubscore.com'
+    'virus.rbl.msrbl.net'
+    'xbl.spamhaus.org'
+    'bl.deadbeef.com'
+    'bl.spamcop.net'
+    'bogons.cymru.com'
+    'combined.abuse.ch'
+    'dnsbl.ahbl.org'
+    'dnsbl.njabl.org'
+    'drone.abuse.ch'
+    'dul.ru'
+    'fl.chickenboner.biz'
+    'ips.backscatterer.org'
+    'misc.dnsbl.sorbs.net'
+    'omrs.dnsbl.net.au'
+    'osrs.dnsbl.net.au'
+    'pbl.spamhaus.org'
+    'proxy.bl.gweep.ca'
+    'rbl.interserver.net'
+    'relays.bl.kundenserver.de'
+    'ricn.dnsbl.net.au'
+    'short.rbl.jp'
+    'spam.abuse.ch'
+    'spam.spamrats.com'
+    't3direct.dnsbl.net.au'
+    'torserver.tor.dnsbl.sectoor.de'
+    'virbl.bit.nl'
+    'web.dnsbl.sorbs.net'
+    'zen.spamhaus.org'
+    'bl.emailbasura.org'
+    'blackholes.five-ten-sg.com'
+    'cbl.abuseat.org'
+    'combined.rbl.msrbl.net'
+    'dnsbl.cyberlogic.net'
+    'dnsbl.sorbs.net'
+    'duinv.aupads.org'
+    'dyna.spamrats.com'
+    'http.dnsbl.sorbs.net'
+    'ix.dnsbl.manitu.net'
+    'noptr.spamrats.com'
+    'orvedb.aupads.org'
+    'owfs.dnsbl.net.au'
+    'phishing.rbl.msrbl.net'
+    'proxy.block.transip.nl'
+    'rdts.dnsbl.net.au'
+    'relays.nether.net'
+    'rmst.dnsbl.net.au'
+    'smtp.dnsbl.sorbs.net'
+    'spam.dnsbl.sorbs.net'
+    'spamlist.or.kr'
+    'tor.ahbl.org'
+    'ubl.lashback.com'
+    'virus.rbl.jp'
+    'wormrbl.imp.ch'
+    'zombie.dnsbl.sorbs.net'
+)
+
+TIMEOUT=5
+WARN_MIN=1
+CRIT_MIN=5
+VERBOSE=
+DEBUG=
+HOST=
+IPv4=
+
+WARN_COUNT=0
+CRIT_COUNT=0
+
+STATE_OK=0
+STATE_WARNING=1
+STATE_CRITICAL=2
+STATE_UNKNOWN=3
+STATE_DEPENDENT=4
+
+#------------------------------------------------------------------------------
+usage() {
+    cat <<-EOF
+	Usage: ${BASE_NAME} [-v] [-d] [-t SECONDS] [-w COUNT] [-c COUNT] -H <HOST_OR_IP>
+	       ${BASE_NAME} [-h|--help]
+	       ${BASE_NAME} [-V|--version]
+
+	    Options:
+	        -v|--verbose    Set verbosity on.
+	        -d|--debug      Debug output (bash -x).
+	        -t|--timeout SECONDS
+	                        The timeout in seconds for querying a particular blacklist.
+	                        Default: ${TIMEOUT} seconds.
+	        -w|--warn COUNT The number of successfule RBL requests, which lead to a warning state.
+	                        Default: ${WARN_MIN}
+	        -c|--crit COUNT The number of successfule RBL requests, which lead to a critical state.
+	                        Default: ${CRIT_MIN}
+	        -H|--host       The hostname or IP address of the host to check for RBL entries.
+	                        This is a mandatory option.
+
+	EOF
+
+}
+
+#------------------------------------------------------------------------------
+description() {
+    echo -e "${DESCRIPTION}"
+}
+
+#------------------------------------------------------------------------------
+my_date() {
+    date --rfc-3339=seconds
+}
+
+#------------------------------------------------------------------------------
+debug() {
+    if [[ "${VERBOSE}" != "y" ]] ; then
+        return 0
+    fi
+    if [[ -n "${LOGFILE}" ]] ; then
+        echo -e "[$(my_date)] [${BASE_NAME}:${CYAN}DEBUG${NORMAL}]: $@" >>"${LOGFILE}"
+    fi
+    echo -e " * [$(my_date)] [${BASE_NAME}:${CYAN}DEBUG${NORMAL}]: $*" >&2
+}
+
+#------------------------------------------------------------------------------
+info() {
+    if [[ -n "${LOGFILE}" ]] ; then
+        echo -e "[$(my_date)] [${BASE_NAME}:${GREEN}DEBUG${NORMAL}]: $@" >>"${LOGFILE}"
+    fi
+    if [[ "${QUIET}" != "y" ]] ; then
+        echo -e " ${GREEN}*${NORMAL} [$(my_date)] [${BASE_NAME}:${GREEN}INFO${NORMAL}] : $*" >&2
+    fi
+}
+
+#------------------------------------------------------------------------------
+warn() {
+    if [[ -n "${LOGFILE}" ]] ; then
+        echo -e "[$(my_date)] [${BASE_NAME}:${YELLOW}DEBUG${NORMAL}]: $@" >>"${LOGFILE}"
+    fi
+    echo -e " ${YELLOW}*${NORMAL} [$(my_date)] [${BASE_NAME}:${YELLOW}WARN${NORMAL}] : $*" >&2
+}
+
+#------------------------------------------------------------------------------
+error() {
+    if [[ -n "${LOGFILE}" ]] ; then
+        echo -e "[$(my_date)] [${BASE_NAME}:${RED}DEBUG${NORMAL}]: $@" >>"${LOGFILE}"
+    fi
+    echo -e " ${RED}*${NORMAL} [$(my_date)] [${BASE_NAME}:${RED}ERROR${NORMAL}]: $*" >&2
+}
+
+
+#------------------------------------------------------------------------------
+get_options() {
+
+    local tmp=
+    local base_dir=
+
+    local short_options="vdt:w:c:H:"
+    local long_options="verbose,debug,timeout:,warn:,crit:,host:"
+    local -a remaining_opts=()
+
+    set +e
+    tmp=$( getopt -o "${short_options}" --long "${long_options}"  -n "${BASE_NAME}" -- "$@" )
+    if [[ $? != 0 ]] ; then
+        usage >&2
+        exit ${STATE_UNKNOWN}
+    fi
+    set -e
+
+    eval set -- "${tmp}"
+
+    if [[ "$#" -gt 0 ]] ; then
+        while true ; do
+            case "$1" in
+                -d|--debug)
+                    DEBUG="y"
+                    shift
+                    ;;
+                -v|--verbose)
+                    VERBOSE="y"
+                    shift
+                    ;;
+                -t|--timeout)
+                    TIMEOUT="$2"
+                    shift
+                    shift
+                    ;;
+                -w|--warn)
+                    WARN_MIN="$2"
+                    shift
+                    shift
+                    ;;
+                -c|--crit)
+                    CRIT_MIN="$2"
+                    shift
+                    shift
+                    ;;
+                -H|--host)
+                    HOST="$2"
+                    shift
+                    shift
+                    ;;
+                -h|--help)
+                    description
+                    echo
+                    usage
+                    exit 0
+                    ;;
+                -V|--version)
+                    echo "${BASE_NAME} version: ${VERSION}"
+                    exit 0
+                    ;;
+                --) shift
+                    break
+                    ;;
+                *)  remaining_opts+=( "$1" )
+                    shift
+                    ;;
+            esac
+        done
+    fi
+
+    if [[ "${DEBUG}" ]] ; then
+        set -x
+    fi
+
+
+}
+
+if type -p host ; then
+    :
+else
+    echo "UNKNOWN - Command 'host' not found."
+    exit ${STATE_UNKNOWN}
+fi
+
+
+
+
+# vim: filetype=sh list
