@@ -18,18 +18,23 @@ import ipaddress
 import logging
 import os
 import pprint
+import random
+import re
 import signal
 import socket
 import sys
 import textwrap
 
-__version__ = '0.2.0'
+import concurrent.futures
+
+__version__ = '0.3.0'
 __author__ = 'Frank Brehm <frank@brehm-online.com>'
 
 MAX_TIMEOUT = 30
 DEFAULT_TIMEOUT = 5
 DEFAULT_LIMIT_WARN = 1
 DEFAULT_LIMIT_CRIT = 4
+DEFAULT_PARALLEL = 20
 
 LOG = logging.getLogger(__name__)
 
@@ -271,15 +276,16 @@ class CheckRblListsApp(object):
         'ubl.unsubscore.com',
         'virus.rbl.msrbl.net',
         'xbl.spamhaus.org',
+        'sbl-xbl.spamhaus.org',
         'bl.deadbeef.com',
         'bl.spamcop.net',
         'bogons.cymru.com',
         'combined.abuse.ch',
-        'dnsbl.ahbl.org',
+        # 'dnsbl.ahbl.org',
         'dnsbl.njabl.org',
         'drone.abuse.ch',
         'dul.ru',
-        'fl.chickenboner.biz',
+        # 'fl.chickenboner.biz',
         'ips.backscatterer.org',
         'misc.dnsbl.sorbs.net',
         'omrs.dnsbl.net.au',
@@ -297,7 +303,7 @@ class CheckRblListsApp(object):
         'virbl.bit.nl',
         'web.dnsbl.sorbs.net',
         'zen.spamhaus.org',
-        'bl.emailbasura.org',
+        # 'bl.emailbasura.org',
         'blackholes.five-ten-sg.com',
         'cbl.abuseat.org',
         'combined.rbl.msrbl.net',
@@ -318,7 +324,7 @@ class CheckRblListsApp(object):
         'smtp.dnsbl.sorbs.net',
         'spam.dnsbl.sorbs.net',
         'spamlist.or.kr',
-        'tor.ahbl.org',
+        # 'tor.ahbl.org',
         'ubl.lashback.com',
         'virus.rbl.jp',
         'wormrbl.imp.ch',
@@ -342,6 +348,7 @@ class CheckRblListsApp(object):
         self.version = __version__
 
         self.verbose = 0
+        self.parallel = DEFAULT_PARALLEL
 
         self.arg_parser = None
         self.args = None
@@ -351,8 +358,14 @@ class CheckRblListsApp(object):
         self.limit_crit = DEFAULT_LIMIT_CRIT
 
         self.blacklists = copy.copy(self.default_blacklists)
+        self.records2check = []
         self.host2check = None
         self.ip2check= None
+        self.ip_reverse = None
+
+        self.count_checkings = 0
+        self.count_entries = 0
+        self.state = state.ok
 
         self.init_arg_parser()
         self.perform_arg_parser()
@@ -386,6 +399,14 @@ class CheckRblListsApp(object):
             help=(
                 "The number of RBL listings of this host, which leads "
                 "to a critical state. Default: {}").format(DEFAULT_LIMIT_CRIT)
+        )
+
+        self.arg_parser.add_argument(
+            '-p', '--parallel', metavar="COUNT", dest='parallel', type=int,
+            action=PositiveIntOptionAction, opt_name='parallel requests',
+            help=(
+                "The number of requests, which may be executed in parallel. "
+                "Default: {}").format(DEFAULT_PARALLEL),
         )
 
         self.arg_parser.add_argument(
@@ -442,9 +463,11 @@ class CheckRblListsApp(object):
         if self.args.warn:
             self.limit_warn = self.args.warn
         if self.args.crit:
-            self.limit_warn = self.args.crit
+            self.limit_crit = self.args.crit
         if self.args.timeout:
             self.limit_timeout = self.args.timeout
+        if self.args.parallel:
+            self.parallel = self.args.parallel
 
     # -------------------------------------------------------------------------
     def post_init(self):
@@ -479,6 +502,8 @@ class CheckRblListsApp(object):
                 print(msg)
                 sys.exit(state.unknown)
 
+        self.ip_reverse = self.ip2check.reverse_pointer.replace('.in-addr.arpa', '')
+
     # -------------------------------------------------------------------------
     def to_ipaddress(self, value):
         """
@@ -494,7 +519,7 @@ class CheckRblListsApp(object):
         return address
 
     # -------------------------------------------------------------------------
-    def get_address_of_host(self, host, only_ipv4=True):
+    def get_address_of_host(self, host, use_timeout=True, only_ipv4=True):
         """
         Trying to get the IP address of the given hostname.
 
@@ -506,8 +531,9 @@ class CheckRblListsApp(object):
         def request_alarm_caller(signum, sigframe):
             raise RequestTimeoutError(self.timeout, host)
 
-        signal.signal(signal.SIGALRM, request_alarm_caller)
-        signal.alarm(self.timeout)
+        if use_timeout:
+            signal.signal(signal.SIGALRM, request_alarm_caller)
+            signal.alarm(self.timeout)
 
         try:
             for addrinfo in socket.getaddrinfo(host, 80):
@@ -517,8 +543,11 @@ class CheckRblListsApp(object):
         except socket.gaierror as e:
             raise HostNotFoundError(host, str(e))
 
-        signal.alarm(0)
+        if use_timeout:
+            signal.alarm(0)
 
+        if addresses and self.verbose > 2:
+            LOG.debug("Got addresses for host {!r}:\n".format(host) + pp(addresses))
         return addresses
 
     # -------------------------------------------------------------------------
@@ -562,6 +591,110 @@ class CheckRblListsApp(object):
 
         return
 
+    # -------------------------------------------------------------------------
+    def __call__(self):
+        """Magic method to make the object callable."""
+        self.run()
+
+    # -------------------------------------------------------------------------
+    def run(self):
+        """Execute the underlaying actions."""
+        blacklists = copy.copy(self.blacklists)
+
+        cur_len = len(blacklists)
+        while cur_len > 1:
+            index = random.randrange(0, cur_len)
+            rbl = blacklists.pop(index)
+            addr_rec = self.ip_reverse + '.' + rbl
+            self.records2check.append(addr_rec)
+            cur_len = len(blacklists)
+
+        rbl = blacklists.pop(0)
+        addr_rec = self.ip_reverse + '.' + rbl
+        self.records2check.append(addr_rec)
+
+        self.count_checkings = len(self.records2check)
+
+        LOG.debug("Addresses to check:\n" + pp(self.records2check))
+        LOG.info("Number of addresses to check: {}".format(self.count_checkings))
+
+        self.get_rbl_entries()
+
+    # -------------------------------------------------------------------------
+    def get_rbl_entry(self, addr_rec):
+        """Working (threaded) method for getting a rbl entry."""
+        LOG.debug("Trying to get address of {!r} ...".format(addr_rec))
+        addr = None
+        try:
+            addresses = self.get_address_of_host(addr_rec, use_timeout=False)
+        except MonitoringError as e:
+            if self.verbose > 1:
+                LOG.debug(str(e))
+            return (addr_rec, None)
+        addr = []
+        if addresses:
+            for addr_obj in addresses:
+                addr_str = str(addr_obj)
+                if addr_str not in addr:
+                    addr.append(addr_str)
+            LOG.info("Got RBL entry for {a!r}: {e!r}".format(a=addr_rec, e=pp(addr)))
+
+        return (addr_rec, addr)
+
+    # -------------------------------------------------------------------------
+    def get_rbl_entries(self):
+
+        results = {}
+        future_to_addr_rec = {}
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=self.parallel) as executor:
+            for addr_rec in self.records2check:
+                future = executor.submit(self.get_rbl_entry, addr_rec)
+                future_to_addr_rec[future] = addr_rec
+
+            for future in concurrent.futures.as_completed(future_to_addr_rec):
+                addr_rec = future_to_addr_rec[future]
+                data = future.result()
+                results[addr_rec] = data[1]
+
+        LOG.debug("Got results:\n" + pp(results))
+
+        re_wo_ip = re.compile(r'^\d+\.\d+\.\d+\.\d+\.')
+
+        self.count_entries = 0
+        rbls_found = []
+        for addr_rec in results:
+            if results[addr_rec]:
+                self.count_entries += 1
+                rbls_found.append(re_wo_ip.sub('', addr_rec))
+
+        LOG.info("Found number of RBL entries: {}".format(self.count_entries))
+
+        LOG.info("Critical limit is {c}, warning limit is {w}.".format(
+            c=self.limit_crit, w=self.limit_warn))
+        prefix = 'OK'
+        if self.count_entries >= self.limit_crit:
+            self.state = state.critical
+            prefix = 'CRITICAL'
+        elif self.count_entries >= self.limit_warn:
+            self.state = state.warning
+            prefix = 'WARNING'
+
+        msg = prefix + ' - No RBL entries for host {!r} found.'.format(self.args.host)
+        if self.count_entries > 1:
+            msg = prefix + " - Found {e} RBL entries for host {h!r}: {r}".format(
+                e=self.count_entries, h=self.args.host, r=', '.join(rbls_found))
+        elif self.count_entries == 1:
+            msg = prefix + " - Found one RBL entry for host {h!r}: {r}".format(
+                h=self.args.host, r=rbls_found[0])
+
+        msg += ' | total_entries={total};;;0; found_entries={found};{warn};{crit};0;'.format(
+            total=self.count_checkings, found=self.count_entries,
+            warn=self.limit_warn, crit=self.limit_crit)
+
+        print(msg)
+        sys.exit(self.state)
+
 
 # =============================================================================
 
@@ -572,7 +705,7 @@ if __name__ == '__main__':
         print("{c}-Object:\n{a}".format(
             c=app.__class__.__name__, a=pp(app.__dict__)), file=sys.stderr)
 
-    # app()
+    app()
 
     sys.exit(0)
 
