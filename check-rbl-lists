@@ -1,279 +1,581 @@
-#!/bin/bash
+#!/usr/bin/env python3
+# -*- coding: utf-8; py-indent-offset: 4 -*-
+"""
+@summary: Script for checking, whether a given IP address or hostname is blacklisted somewhere
 
-# Script for checking, whether a given IP address or hostname is blacklisted somewhere
+@author: Frank Brehm
+@contact: frank@brehm-online.com
+@license: GPL3+
+@copyright: © 2024 Frank Brehm, Berlin
+"""
+from __future__ import print_function
 
-# Author: Frank Brehm <frank@brehm-online.com>
 
-set -e
-set -u
+import argparse
+import copy
+import errno
+import ipaddress
+import logging
+import os
+import pprint
+import signal
+import socket
+import sys
+import textwrap
 
-VERSION='0.1.0'
+__version__ = '0.2.0'
+__author__ = 'Frank Brehm <frank@brehm-online.com>'
 
-DESCRIPTION=$( cat <<-EOF
-	This is a check script for Nagios/Icinga to check, 
-	whether the given host or IP address is listed in one or more
-	Domain Name System blocklist.
-	EOF
-)
+MAX_TIMEOUT = 30
+DEFAULT_TIMEOUT = 5
+DEFAULT_LIMIT_WARN = 1
+DEFAULT_LIMIT_CRIT = 4
 
-BASE_NAME="$( basename ${0} )"
+LOG = logging.getLogger(__name__)
 
-declare -a BLACKLISTS=(
-    'b.barracudacentral.org'
-    'bl.spamcannibal.org'
-    'blacklist.woody.ch'
-    'cdl.anti-spam.org.cn'
-    'db.wpbl.info'
-    'dnsbl.inps.de'
-    'drone.abuse.ch'
-    'dul.dnsbl.sorbs.net'
-    'dynip.rothen.com'
-    'images.rbl.msrbl.net'
-    'korea.services.net'
-    'ohps.dnsbl.net.au'
-    'osps.dnsbl.net.au'
-    'owps.dnsbl.net.au'
-    'probes.dnsbl.net.au'
-    'psbl.surriel.com'
-    'relays.bl.gweep.ca'
-    'residential.block.transip.nl'
-    'sbl.spamhaus.org'
-    'socks.dnsbl.sorbs.net'
-    'spam.rbl.msrbl.net'
-    'spamrbl.imp.ch'
-    'tor.dnsbl.sectoor.de'
-    'ubl.unsubscore.com'
-    'virus.rbl.msrbl.net'
-    'xbl.spamhaus.org'
-    'bl.deadbeef.com'
-    'bl.spamcop.net'
-    'bogons.cymru.com'
-    'combined.abuse.ch'
-    'dnsbl.ahbl.org'
-    'dnsbl.njabl.org'
-    'drone.abuse.ch'
-    'dul.ru'
-    'fl.chickenboner.biz'
-    'ips.backscatterer.org'
-    'misc.dnsbl.sorbs.net'
-    'omrs.dnsbl.net.au'
-    'osrs.dnsbl.net.au'
-    'pbl.spamhaus.org'
-    'proxy.bl.gweep.ca'
-    'rbl.interserver.net'
-    'relays.bl.kundenserver.de'
-    'ricn.dnsbl.net.au'
-    'short.rbl.jp'
-    'spam.abuse.ch'
-    'spam.spamrats.com'
-    't3direct.dnsbl.net.au'
-    'torserver.tor.dnsbl.sectoor.de'
-    'virbl.bit.nl'
-    'web.dnsbl.sorbs.net'
-    'zen.spamhaus.org'
-    'bl.emailbasura.org'
-    'blackholes.five-ten-sg.com'
-    'cbl.abuseat.org'
-    'combined.rbl.msrbl.net'
-    'dnsbl.cyberlogic.net'
-    'dnsbl.sorbs.net'
-    'duinv.aupads.org'
-    'dyna.spamrats.com'
-    'http.dnsbl.sorbs.net'
-    'ix.dnsbl.manitu.net'
-    'noptr.spamrats.com'
-    'orvedb.aupads.org'
-    'owfs.dnsbl.net.au'
-    'phishing.rbl.msrbl.net'
-    'proxy.block.transip.nl'
-    'rdts.dnsbl.net.au'
-    'relays.nether.net'
-    'rmst.dnsbl.net.au'
-    'smtp.dnsbl.sorbs.net'
-    'spam.dnsbl.sorbs.net'
-    'spamlist.or.kr'
-    'tor.ahbl.org'
-    'ubl.lashback.com'
-    'virus.rbl.jp'
-    'wormrbl.imp.ch'
-    'zombie.dnsbl.sorbs.net'
-)
+# =============================================================================
+class MonitoringError(Exception):
+    """Base error class for all other self defined exceptions."""
 
-TIMEOUT=5
-WARN_MIN=1
-CRIT_MIN=5
-VERBOSE=
-DEBUG=
-HOST=
-IPv4=
+    pass
 
-WARN_COUNT=0
-CRIT_COUNT=0
 
-STATE_OK=0
-STATE_WARNING=1
-STATE_CRITICAL=2
-STATE_UNKNOWN=3
-STATE_DEPENDENT=4
+# =============================================================================
+class HostNotFoundError(MonitoringError):
+    """Special error class for the case, thehostname could not be resolved."""
 
-#------------------------------------------------------------------------------
-usage() {
-    cat <<-EOF
-	Usage: ${BASE_NAME} [-v] [-d] [-t SECONDS] [-w COUNT] [-c COUNT] -H <HOST_OR_IP>
-	       ${BASE_NAME} [-h|--help]
-	       ${BASE_NAME} [-V|--version]
+    # -------------------------------------------------------------------------
+    def __init__(self, host, errmsg):
+        """Initialise a HostNotFoundError exception."""
+        self.host = host
+        self.errmsg = errmsg
 
-	    Options:
-	        -v|--verbose    Set verbosity on.
-	        -d|--debug      Debug output (bash -x).
-	        -t|--timeout SECONDS
-	                        The timeout in seconds for querying a particular blacklist.
-	                        Default: ${TIMEOUT} seconds.
-	        -w|--warn COUNT The number of successfule RBL requests, which lead to a warning state.
-	                        Default: ${WARN_MIN}
-	        -c|--crit COUNT The number of successfule RBL requests, which lead to a critical state.
-	                        Default: ${CRIT_MIN}
-	        -H|--host       The hostname or IP address of the host to check for RBL entries.
-	                        This is a mandatory option.
+    # -------------------------------------------------------------------------
+    def __str__(self):
+        """Typecast into a string."""
+        msg = 'Host {h!r} could not be resolved: {e}'.format(
+            h=self.host, e=self.errmsg)
+        return msg
 
-	EOF
+# =============================================================================
+class InterruptError(MonitoringError):
+    """Special error class for the case, the process was interrupted somehow."""
 
-}
+    signal_names = {
+        signal.SIGHUP: 'HUP',
+        signal.SIGINT: 'INT',
+        signal.SIGABRT: 'ABRT',
+        signal.SIGTERM: 'TERM',
+        signal.SIGKILL: 'KILL',
+        signal.SIGUSR1: 'USR1',
+        signal.SIGUSR2: 'USR2',
+    }
 
-#------------------------------------------------------------------------------
-description() {
-    echo -e "${DESCRIPTION}"
-}
+    # -------------------------------------------------------------------------
+    def __init__(self, signum):
+        """Initialise a InterruptError exception."""
+        self.signum = signum
 
-#------------------------------------------------------------------------------
-my_date() {
-    date --rfc-3339=seconds
-}
+    # -------------------------------------------------------------------------
+    def __str__(self):
+        """Typecast into a string."""
+        signame = '{}'.format(self.signum)
+        if self.signum in self.signal_names:
+            signame = self.signal_names[self.signum] + '(' + signame + ')'
 
-#------------------------------------------------------------------------------
-debug() {
-    if [[ "${VERBOSE}" != "y" ]] ; then
+        msg = 'Process with PID {pid} got signal {signal}.'.format(
+            pid=os.getpid(), signal=signame)
+
+        return msg
+
+
+# =============================================================================
+class RequestTimeoutError(MonitoringError, IOError):
+    """Special error class for the case, the request came into a timeout."""
+
+    # -------------------------------------------------------------------------
+    def __init__(self, timeout, host):
+        """Initialize the RequestTimeoutError object."""
+
+        strerror = "Error requesting address of {!r}".format(host)
+
+        t_o = None
+        try:
+            t_o = float(timeout)
+        except ValueError:
+            pass
+        self.timeout = t_o
+
+        if t_o is not None:
+            strerror += ' (timeout after {:0.1f} secs)'.format(t_o)
+        strerror += '.'
+
+        super(RequestTimeoutError, self).__init__(errno.ETIMEDOUT, strerror)
+
+
+# =============================================================================
+def constant(f):
+
+    # -----------------------------------------------------------
+    def fset(self, value):
+        raise SyntaxError('Constants may not changed.')
+
+    # -----------------------------------------------------------
+    def fget(self):
+        return f()
+
+    # -----------------------------------------------------------
+    return property(fget, fset)
+
+
+# =============================================================================
+class _State(object):
+
+    # -----------------------------------------------------------
+    @constant
+    def ok():
         return 0
-    fi
-    if [[ -n "${LOGFILE}" ]] ; then
-        echo -e "[$(my_date)] [${BASE_NAME}:${CYAN}DEBUG${NORMAL}]: $@" >>"${LOGFILE}"
-    fi
-    echo -e " * [$(my_date)] [${BASE_NAME}:${CYAN}DEBUG${NORMAL}]: $*" >&2
-}
 
-#------------------------------------------------------------------------------
-info() {
-    if [[ -n "${LOGFILE}" ]] ; then
-        echo -e "[$(my_date)] [${BASE_NAME}:${GREEN}DEBUG${NORMAL}]: $@" >>"${LOGFILE}"
-    fi
-    if [[ "${QUIET}" != "y" ]] ; then
-        echo -e " ${GREEN}*${NORMAL} [$(my_date)] [${BASE_NAME}:${GREEN}INFO${NORMAL}] : $*" >&2
-    fi
-}
+    # -----------------------------------------------------------
+    @constant
+    def warning():
+        return 1
 
-#------------------------------------------------------------------------------
-warn() {
-    if [[ -n "${LOGFILE}" ]] ; then
-        echo -e "[$(my_date)] [${BASE_NAME}:${YELLOW}DEBUG${NORMAL}]: $@" >>"${LOGFILE}"
-    fi
-    echo -e " ${YELLOW}*${NORMAL} [$(my_date)] [${BASE_NAME}:${YELLOW}WARN${NORMAL}] : $*" >&2
-}
+    # -----------------------------------------------------------
+    @constant
+    def critical():
+        return 2
 
-#------------------------------------------------------------------------------
-error() {
-    if [[ -n "${LOGFILE}" ]] ; then
-        echo -e "[$(my_date)] [${BASE_NAME}:${RED}DEBUG${NORMAL}]: $@" >>"${LOGFILE}"
-    fi
-    echo -e " ${RED}*${NORMAL} [$(my_date)] [${BASE_NAME}:${RED}ERROR${NORMAL}]: $*" >&2
-}
+    # -----------------------------------------------------------
+    @constant
+    def unknown():
+        return 3
+
+    # -----------------------------------------------------------
+    @constant
+    def dependent():
+        return 4
 
 
-#------------------------------------------------------------------------------
-get_options() {
+# =============================================================================
 
-    local tmp=
-    local base_dir=
-
-    local short_options="vdt:w:c:H:"
-    local long_options="verbose,debug,timeout:,warn:,crit:,host:"
-    local -a remaining_opts=()
-
-    set +e
-    tmp=$( getopt -o "${short_options}" --long "${long_options}"  -n "${BASE_NAME}" -- "$@" )
-    if [[ $? != 0 ]] ; then
-        usage >&2
-        exit ${STATE_UNKNOWN}
-    fi
-    set -e
-
-    eval set -- "${tmp}"
-
-    if [[ "$#" -gt 0 ]] ; then
-        while true ; do
-            case "$1" in
-                -d|--debug)
-                    DEBUG="y"
-                    shift
-                    ;;
-                -v|--verbose)
-                    VERBOSE="y"
-                    shift
-                    ;;
-                -t|--timeout)
-                    TIMEOUT="$2"
-                    shift
-                    shift
-                    ;;
-                -w|--warn)
-                    WARN_MIN="$2"
-                    shift
-                    shift
-                    ;;
-                -c|--crit)
-                    CRIT_MIN="$2"
-                    shift
-                    shift
-                    ;;
-                -H|--host)
-                    HOST="$2"
-                    shift
-                    shift
-                    ;;
-                -h|--help)
-                    description
-                    echo
-                    usage
-                    exit 0
-                    ;;
-                -V|--version)
-                    echo "${BASE_NAME} version: ${VERSION}"
-                    exit 0
-                    ;;
-                --) shift
-                    break
-                    ;;
-                *)  remaining_opts+=( "$1" )
-                    shift
-                    ;;
-            esac
-        done
-    fi
-
-    if [[ "${DEBUG}" ]] ; then
-        set -x
-    fi
+state = _State()
 
 
-}
+# =============================================================================
+def pp(value, indent=4, width=150, depth=None):
+    """
+    Returns a pretty print string of the given value.
 
-if type -p host ; then
-    :
-else
-    echo "UNKNOWN - Command 'host' not found."
-    exit ${STATE_UNKNOWN}
-fi
+    @return: pretty print string
+    @rtype: str
+    """
+
+    pretty_printer = pprint.PrettyPrinter(
+        indent=indent, width=width, depth=depth)
+    return pretty_printer.pformat(value)
+
+
+# =============================================================================
+class PositiveIntOptionAction(argparse.Action):
+    """An argparse action for option, which must be positive integers."""
+
+    # -------------------------------------------------------------------------
+    def __init__(self, option_strings, opt_name='positive integer option', *args, **kwargs):
+        """Initialise a PositiveIntOptionAction onject."""
+        super(PositiveIntOptionAction, self).__init__(
+            option_strings=option_strings, *args, **kwargs)
+        self.opt_name = opt_name
+
+    # -------------------------------------------------------------------------
+    def __call__(self, parser, namespace, given_value, option_string=None):
+        """Parse the positive integer option option."""
+        try:
+            value = int(given_value)
+            if value <= 0:
+                msg = 'A {} must be greater than zero.'.format(self.opt_name)
+                raise ValueError(msg)
+        except (ValueError, TypeError) as e:
+            msg = 'Wrong value {!r}:'.format(given_value)
+            msg += ' ' + str(e)
+            raise argparse.ArgumentError(self, msg)
+
+        setattr(namespace, self.dest, value)
+
+
+# =============================================================================
+class TimeoutOptionAction(argparse.Action):
+    """An argparse action for timeouts."""
+
+    # -------------------------------------------------------------------------
+    def __init__(self, option_strings, max_timeout=MAX_TIMEOUT, *args, **kwargs):
+        """Initialise a TimeoutOptionAction object."""
+        super(TimeoutOptionAction, self).__init__(
+            option_strings=option_strings, *args, **kwargs)
+        self.max_timeout = max_timeout
+
+    # -------------------------------------------------------------------------
+    def __call__(self, parser, namespace, given_timeout, option_string=None):
+        """Parse the timeout option."""
+        try:
+            timeout = int(given_timeout)
+            if timeout <= 0 or timeout > self.max_timeout:
+                msg = 'A timeout must be greater than zero and less or equal to {}.'.format(
+                    self.max_timeout)
+                raise ValueError(msg)
+        except (ValueError, TypeError) as e:
+            msg = 'Wrong timeout {!r}:'.format(given_timeout)
+            msg += ' ' + str(e)
+            raise argparse.ArgumentError(self, msg)
+
+        setattr(namespace, self.dest, timeout)
+
+
+# =============================================================================
+class CheckRblListsApp(object):
+    """
+    Class for the check-rbl-lists application.
+    Checks, whther a given hos is listed in one or more Domain Name System blocklists.
+    """
+
+    description = textwrap.dedent("""\
+    This is a check script for Nagios/Icinga to check,
+    whether the given host or IP address is listed in one or more
+    Domain Name System blocklist.
+    """)
+
+    default_blacklists = [
+        'b.barracudacentral.org',
+        'bl.spamcannibal.org',
+        'blacklist.woody.ch',
+        'cdl.anti-spam.org.cn',
+        'db.wpbl.info',
+        'dnsbl.inps.de',
+        'drone.abuse.ch',
+        'dul.dnsbl.sorbs.net',
+        'dynip.rothen.com',
+        'images.rbl.msrbl.net',
+        'korea.services.net',
+        'ohps.dnsbl.net.au',
+        'osps.dnsbl.net.au',
+        'owps.dnsbl.net.au',
+        'probes.dnsbl.net.au',
+        'psbl.surriel.com',
+        'relays.bl.gweep.ca',
+        'residential.block.transip.nl',
+        'sbl.spamhaus.org',
+        'socks.dnsbl.sorbs.net',
+        'spam.rbl.msrbl.net',
+        'spamrbl.imp.ch',
+        'tor.dnsbl.sectoor.de',
+        'ubl.unsubscore.com',
+        'virus.rbl.msrbl.net',
+        'xbl.spamhaus.org',
+        'bl.deadbeef.com',
+        'bl.spamcop.net',
+        'bogons.cymru.com',
+        'combined.abuse.ch',
+        'dnsbl.ahbl.org',
+        'dnsbl.njabl.org',
+        'drone.abuse.ch',
+        'dul.ru',
+        'fl.chickenboner.biz',
+        'ips.backscatterer.org',
+        'misc.dnsbl.sorbs.net',
+        'omrs.dnsbl.net.au',
+        'osrs.dnsbl.net.au',
+        'pbl.spamhaus.org',
+        'proxy.bl.gweep.ca',
+        'rbl.interserver.net',
+        'relays.bl.kundenserver.de',
+        'ricn.dnsbl.net.au',
+        'short.rbl.jp',
+        'spam.abuse.ch',
+        'spam.spamrats.com',
+        't3direct.dnsbl.net.au',
+        'torserver.tor.dnsbl.sectoor.de',
+        'virbl.bit.nl',
+        'web.dnsbl.sorbs.net',
+        'zen.spamhaus.org',
+        'bl.emailbasura.org',
+        'blackholes.five-ten-sg.com',
+        'cbl.abuseat.org',
+        'combined.rbl.msrbl.net',
+        'dnsbl.cyberlogic.net',
+        'dnsbl.sorbs.net',
+        'duinv.aupads.org',
+        'dyna.spamrats.com',
+        'http.dnsbl.sorbs.net',
+        'ix.dnsbl.manitu.net',
+        'noptr.spamrats.com',
+        'orvedb.aupads.org',
+        'owfs.dnsbl.net.au',
+        'phishing.rbl.msrbl.net',
+        'proxy.block.transip.nl',
+        'rdts.dnsbl.net.au',
+        'relays.nether.net',
+        'rmst.dnsbl.net.au',
+        'smtp.dnsbl.sorbs.net',
+        'spam.dnsbl.sorbs.net',
+        'spamlist.or.kr',
+        'tor.ahbl.org',
+        'ubl.lashback.com',
+        'virus.rbl.jp',
+        'wormrbl.imp.ch',
+        'zombie.dnsbl.sorbs.net',
+    ]
+
+    # -------------------------------------------------------------------------
+    @classmethod
+    def get_generic_appname(cls, appname=None):
+
+        if appname:
+            v = str(appname).strip()
+            if v:
+                return v
+        return os.path.basename(sys.argv[0])
+
+    # -------------------------------------------------------------------------
+    def __init__(self):
+        """Initialize this object."""
+        self.appname = self.get_generic_appname()
+        self.version = __version__
+
+        self.verbose = 0
+
+        self.arg_parser = None
+        self.args = None
+
+        self.timeout = DEFAULT_TIMEOUT
+        self.limit_warn = DEFAULT_LIMIT_WARN
+        self.limit_crit = DEFAULT_LIMIT_CRIT
+
+        self.blacklists = copy.copy(self.default_blacklists)
+        self.host2check = None
+        self.ip2check= None
+
+        self.init_arg_parser()
+        self.perform_arg_parser()
+        self.init_logging()
+
+        self.post_init()
+
+    # -------------------------------------------------------------------------
+    def init_arg_parser(self):
+        """Method to initiate the argument parser."""
+
+        self.arg_parser = argparse.ArgumentParser(
+            prog=self.appname, description=self.description, add_help=False)
+
+        self.arg_parser.add_argument(
+            "-v", "--verbose", action="count", dest='verbose',
+            help='Increase the verbosity level',
+        )
+
+        self.arg_parser.add_argument(
+            '-w', '--warn', metavar="COUNT", dest='warn', type=int,
+            action=PositiveIntOptionAction, opt_name='warning limit',
+            help=(
+                "The number of RBL listings of this host, which leads "
+                "to a warning state. Default: {}").format(DEFAULT_LIMIT_WARN)
+        )
+
+        self.arg_parser.add_argument(
+            '-c', '--crit', metavar="COUNT", dest='crit', type=int,
+            action=PositiveIntOptionAction, opt_name='critical limit',
+            help=(
+                "The number of RBL listings of this host, which leads "
+                "to a critical state. Default: {}").format(DEFAULT_LIMIT_CRIT)
+        )
+
+        self.arg_parser.add_argument(
+            '-t', '--timeout', metavar="SECONDS", dest='timeout', type=int,
+            action=TimeoutOptionAction,
+            help=(
+                "The timout in seconds for requesting a particular RBL entry. "
+                "Default: {} seconds").format(DEFAULT_TIMEOUT)
+        )
+
+        self.arg_parser.add_argument(
+            '--check-hostname-too', action='store_true', dest='check_hostname',
+            help=(
+                'Checking also the hostname itself for an entry in RBL lists, if '
+                'the given hostname with "-H" is not an IP address.'),
+        )
+
+        self.arg_parser.add_argument(
+            '-H', '--host', metavar="HOST_OR_ADDRESS", dest='host', required=True,
+            help='The hostname or the IP address to check for an entry in RBL lists.',
+        )
+
+        self.arg_parser.add_argument(
+            "-h", "--help", action='help', dest='help',
+            help='Show this help message and exit.'
+        )
+
+        self.arg_parser.add_argument(
+            "--usage", action='store_true', dest='usage',
+            help="Display brief usage message and exit."
+        )
+
+        v_msg = "Version of %(prog)s: {}".format(self.version)
+        self.arg_parser.add_argument(
+            "-V", '--version', action='version', version=v_msg,
+            help="Show program's version number and exit."
+        )
+
+    # -------------------------------------------------------------------------
+    def perform_arg_parser(self):
+        """
+        Method for parsing arguments.
+        """
+
+        self.args = self.arg_parser.parse_args()
+
+        if self.args.usage:
+            self.arg_parser.print_usage(sys.stdout)
+            sys.exit(0)
+
+        if self.args.verbose is not None and self.args.verbose > self.verbose:
+            self.verbose = self.args.verbose
+
+        if self.args.warn:
+            self.limit_warn = self.args.warn
+        if self.args.crit:
+            self.limit_warn = self.args.crit
+        if self.args.timeout:
+            self.limit_timeout = self.args.timeout
+
+    # -------------------------------------------------------------------------
+    def post_init(self):
+        """Tasks to do at the end of the initialization."""
+        addr = self.to_ipaddress(self.args.host)
+        if addr:
+            if addr.version != 4:
+                msg = 'UNKNOWN - IPv6 addresses like {!r} are not supported.'.format(
+                    self.args.host)
+                print(msg)
+                sys.exit(state.unknown)
+            LOG.debug("Checking IP address {!r}.".format(str(addr)))
+            self.ip2check = addr
+        else:
+            try:
+                LOG.debug("Trying to resolv {!r}.".format(str(self.args.host)))
+                addresses = self.get_address_of_host(self.args.host)
+            except MonitoringError as e:
+                LOG.info(str(e))
+                msg = 'UNKNOWN - ' + str(e)
+                print(msg)
+                sys.exit(state.unknown)
+            if addresses:
+                self.ip2check = addresses[0]
+                LOG.info("Checking IP address {!r}.".format(str(self.ip2check)))
+                if self.args.check_hostname:
+                    LOG.info("Checking also host {!r}.".format(self.args.host))
+                    self.host2check = self.args.host
+            else:
+                msg = 'UNKNOWN - Host {!r} seems not to have an IP address.'.format(
+                    self.args.host)
+                print(msg)
+                sys.exit(state.unknown)
+
+    # -------------------------------------------------------------------------
+    def to_ipaddress(self, value):
+        """
+        Trying to convert the given value to an ipaddress object.
+
+        If not successful, None will be returned.
+        """
+        try:
+            address = ipaddress.ip_address(value)
+        except ValueError as e:
+            LOG.debug(str(e))
+            return None
+        return address
+
+    # -------------------------------------------------------------------------
+    def get_address_of_host(self, host, only_ipv4=True):
+        """
+        Trying to get the IP address of the given hostname.
+
+        It returns the found addresses as a list of ipaddress objects.
+        """
+
+        addresses = []
+
+        def request_alarm_caller(signum, sigframe):
+            raise RequestTimeoutError(self.timeout, host)
+
+        signal.signal(signal.SIGALRM, request_alarm_caller)
+        signal.alarm(self.timeout)
+
+        try:
+            for addrinfo in socket.getaddrinfo(host, 80):
+                if addrinfo[0] == socket.AF_INET or not only_ipv4:
+                    addr = self.to_ipaddress(addrinfo[4][0])
+                    addresses.append(addr)
+        except socket.gaierror as e:
+            raise HostNotFoundError(host, str(e))
+
+        signal.alarm(0)
+
+        return addresses
+
+    # -------------------------------------------------------------------------
+    def init_logging(self):
+        """
+        Initialize the logger object.
+        It creates a loghandler with all output to STDERR.
+
+        @return: None
+        """
+
+        log_level = logging.WARN
+        if self.verbose:
+            if self.verbose > 1:
+                log_level = logging.DEBUG
+            else:
+                log_level = logging.INFO
+
+        root_logger = logging.getLogger()
+        root_logger.setLevel(log_level)
+
+        # create formatter
+        format_str = ''
+        if self.verbose:
+            format_str = '[%(asctime)s]: '
+        format_str += self.appname + ': '
+        if self.verbose:
+            if self.verbose > 1:
+                format_str += '%(name)s(%(lineno)d) %(funcName)s() '
+            else:
+                format_str += '%(name)s '
+        format_str += '%(levelname)s - %(message)s'
+        formatter = logging.Formatter(format_str)
+
+        # create log handler for console output
+        lh_console = logging.StreamHandler(sys.stderr)
+        lh_console.setLevel(log_level)
+        lh_console.setFormatter(formatter)
+
+        root_logger.addHandler(lh_console)
+
+        return
+
+
+# =============================================================================
+
+if __name__ == '__main__':
+    app = CheckRblListsApp()
+
+    if app.verbose > 2:
+        print("{c}-Object:\n{a}".format(
+            c=app.__class__.__name__, a=pp(app.__dict__)), file=sys.stderr)
+
+    # app()
+
+    sys.exit(0)
 
 
 
-
-# vim: filetype=sh list
+# vim: filetype=python list
