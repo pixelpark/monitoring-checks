@@ -141,3 +141,6 @@ dmypy.json
 /tmp
 rpmdir/*
 .rpm-version*
+
+
+rbl-serverlist-*.txt

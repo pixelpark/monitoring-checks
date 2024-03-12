@@ -1,0 +1,666 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8; py-indent-offset: 4 -*-
+"""
+@summary: Script for checking, whether a given IP address or hostname is blacklisted somewhere
+
+@author: Frank Brehm
+@contact: frank@brehm-online.com
+@license: GPL3+
+@copyright: © 2024 Frank Brehm, Berlin
+"""
+from __future__ import print_function
+
+
+import argparse
+import copy
+import errno
+import ipaddress
+import logging
+import os
+import pprint
+import random
+import re
+import signal
+import socket
+import sys
+import textwrap
+import timeit
+
+from pathlib import Path
+
+import concurrent.futures
+
+__version__ = '0.3.0'
+__author__ = 'Frank Brehm <frank@brehm-online.com>'
+
+MAX_TIMEOUT = 30
+DEFAULT_TIMEOUT = 5
+DEFAULT_LIMIT_WARN = 1
+DEFAULT_LIMIT_CRIT = 4
+DEFAULT_PARALLEL = 20
+
+LOG = logging.getLogger(__name__)
+
+# =============================================================================
+class MonitoringError(Exception):
+    """Base error class for all other self defined exceptions."""
+
+    pass
+
+
+# =============================================================================
+class HostNotFoundError(MonitoringError):
+    """Special error class for the case, thehostname could not be resolved."""
+
+    # -------------------------------------------------------------------------
+    def __init__(self, host, errmsg):
+        """Initialise a HostNotFoundError exception."""
+        self.host = host
+        self.errmsg = errmsg
+
+    # -------------------------------------------------------------------------
+    def __str__(self):
+        """Typecast into a string."""
+        msg = 'Host {h!r} could not be resolved: {e}'.format(
+            h=self.host, e=self.errmsg)
+        return msg
+
+# =============================================================================
+class InterruptError(MonitoringError):
+    """Special error class for the case, the process was interrupted somehow."""
+
+    signal_names = {
+        signal.SIGHUP: 'HUP',
+        signal.SIGINT: 'INT',
+        signal.SIGABRT: 'ABRT',
+        signal.SIGTERM: 'TERM',
+        signal.SIGKILL: 'KILL',
+        signal.SIGUSR1: 'USR1',
+        signal.SIGUSR2: 'USR2',
+    }
+
+    # -------------------------------------------------------------------------
+    def __init__(self, signum):
+        """Initialise a InterruptError exception."""
+        self.signum = signum
+
+    # -------------------------------------------------------------------------
+    def __str__(self):
+        """Typecast into a string."""
+        signame = '{}'.format(self.signum)
+        if self.signum in self.signal_names:
+            signame = self.signal_names[self.signum] + '(' + signame + ')'
+
+        msg = 'Process with PID {pid} got signal {signal}.'.format(
+            pid=os.getpid(), signal=signame)
+
+        return msg
+
+
+# =============================================================================
+class RequestTimeoutError(MonitoringError, IOError):
+    """Special error class for the case, the request came into a timeout."""
+
+    # -------------------------------------------------------------------------
+    def __init__(self, timeout, host):
+        """Initialize the RequestTimeoutError object."""
+
+        strerror = "Error requesting address of {!r}".format(host)
+
+        t_o = None
+        try:
+            t_o = float(timeout)
+        except ValueError:
+            pass
+        self.timeout = t_o
+
+        if t_o is not None:
+            strerror += ' (timeout after {:0.1f} secs)'.format(t_o)
+        strerror += '.'
+
+        super(RequestTimeoutError, self).__init__(errno.ETIMEDOUT, strerror)
+
+
+# =============================================================================
+def constant(f):
+
+    # -----------------------------------------------------------
+    def fset(self, value):
+        raise SyntaxError('Constants may not changed.')
+
+    # -----------------------------------------------------------
+    def fget(self):
+        return f()
+
+    # -----------------------------------------------------------
+    return property(fget, fset)
+
+
+# =============================================================================
+class _State(object):
+
+    # -----------------------------------------------------------
+    @constant
+    def ok():
+        return 0
+
+    # -----------------------------------------------------------
+    @constant
+    def warning():
+        return 1
+
+    # -----------------------------------------------------------
+    @constant
+    def critical():
+        return 2
+
+    # -----------------------------------------------------------
+    @constant
+    def unknown():
+        return 3
+
+    # -----------------------------------------------------------
+    @constant
+    def dependent():
+        return 4
+
+
+# =============================================================================
+
+state = _State()
+
+
+# =============================================================================
+def pp(value, indent=4, width=150, depth=None):
+    """
+    Returns a pretty print string of the given value.
+
+    @return: pretty print string
+    @rtype: str
+    """
+
+    pretty_printer = pprint.PrettyPrinter(
+        indent=indent, width=width, depth=depth)
+    return pretty_printer.pformat(value)
+
+
+# =============================================================================
+class PositiveIntOptionAction(argparse.Action):
+    """An argparse action for option, which must be positive integers."""
+
+    # -------------------------------------------------------------------------
+    def __init__(self, option_strings, opt_name='positive integer option', *args, **kwargs):
+        """Initialise a PositiveIntOptionAction onject."""
+        super(PositiveIntOptionAction, self).__init__(
+            option_strings=option_strings, *args, **kwargs)
+        self.opt_name = opt_name
+
+    # -------------------------------------------------------------------------
+    def __call__(self, parser, namespace, given_value, option_string=None):
+        """Parse the positive integer option option."""
+        try:
+            value = int(given_value)
+            if value <= 0:
+                msg = 'A {} must be greater than zero.'.format(self.opt_name)
+                raise ValueError(msg)
+        except (ValueError, TypeError) as e:
+            msg = 'Wrong value {!r}:'.format(given_value)
+            msg += ' ' + str(e)
+            raise argparse.ArgumentError(self, msg)
+
+        setattr(namespace, self.dest, value)
+
+
+# =============================================================================
+class TimeoutOptionAction(argparse.Action):
+    """An argparse action for timeouts."""
+
+    # -------------------------------------------------------------------------
+    def __init__(self, option_strings, max_timeout=MAX_TIMEOUT, *args, **kwargs):
+        """Initialise a TimeoutOptionAction object."""
+        super(TimeoutOptionAction, self).__init__(
+            option_strings=option_strings, *args, **kwargs)
+        self.max_timeout = max_timeout
+
+    # -------------------------------------------------------------------------
+    def __call__(self, parser, namespace, given_timeout, option_string=None):
+        """Parse the timeout option."""
+        try:
+            timeout = int(given_timeout)
+            if timeout <= 0 or timeout > self.max_timeout:
+                msg = 'A timeout must be greater than zero and less or equal to {}.'.format(
+                    self.max_timeout)
+                raise ValueError(msg)
+        except (ValueError, TypeError) as e:
+            msg = 'Wrong timeout {!r}:'.format(given_timeout)
+            msg += ' ' + str(e)
+            raise argparse.ArgumentError(self, msg)
+
+        setattr(namespace, self.dest, timeout)
+
+
+# =============================================================================
+class CheckRblListsApp(object):
+    """
+    Class for the check-rbl-lists application.
+    Checks, whther a given hos is listed in one or more Domain Name System blocklists.
+    """
+
+    description = textwrap.dedent("""\
+    This is a check script for Nagios/Icinga to check,
+    whether the given host or IP address is listed in one or more
+    Domain Name System blocklist.
+    """)
+
+    # -------------------------------------------------------------------------
+    @classmethod
+    def get_generic_appname(cls, appname=None):
+
+        if appname:
+            v = str(appname).strip()
+            if v:
+                return v
+        return os.path.basename(sys.argv[0])
+
+    # -------------------------------------------------------------------------
+    def __init__(self):
+        """Initialize this object."""
+        self.appname = self.get_generic_appname()
+        self.version = __version__
+
+        self.verbose = 0
+        self.parallel = DEFAULT_PARALLEL
+
+        self.arg_parser = None
+        self.args = None
+
+        self.timeout = DEFAULT_TIMEOUT
+        self.limit_warn = DEFAULT_LIMIT_WARN
+        self.limit_crit = DEFAULT_LIMIT_CRIT
+
+        self.blacklists = []
+        self.records2check = []
+        self.host2check = None
+        self.ip2check= None
+        self.ip_reverse = None
+
+        self.count_checkings = 0
+        self.count_entries = 0
+        self.state = state.ok
+
+        self.init_arg_parser()
+        self.perform_arg_parser()
+        self.init_logging()
+
+        self.read_rbl_server_list()
+        self.post_init()
+
+    # -------------------------------------------------------------------------
+    def init_arg_parser(self):
+        """Method to initiate the argument parser."""
+
+        self.arg_parser = argparse.ArgumentParser(
+            prog=self.appname, description=self.description, add_help=False)
+
+        self.arg_parser.add_argument(
+            "-v", "--verbose", action="count", dest='verbose',
+            help='Increase the verbosity level',
+        )
+
+        self.arg_parser.add_argument(
+            '-w', '--warn', metavar="COUNT", dest='warn', type=int,
+            action=PositiveIntOptionAction, opt_name='warning limit',
+            help=(
+                "The number of RBL listings of this host, which leads "
+                "to a warning state. Default: {}").format(DEFAULT_LIMIT_WARN)
+        )
+
+        self.arg_parser.add_argument(
+            '-c', '--crit', metavar="COUNT", dest='crit', type=int,
+            action=PositiveIntOptionAction, opt_name='critical limit',
+            help=(
+                "The number of RBL listings of this host, which leads "
+                "to a critical state. Default: {}").format(DEFAULT_LIMIT_CRIT)
+        )
+
+        self.arg_parser.add_argument(
+            '-p', '--parallel', metavar="COUNT", dest='parallel', type=int,
+            action=PositiveIntOptionAction, opt_name='parallel requests',
+            help=(
+                "The number of requests, which may be executed in parallel. "
+                "Default: {}").format(DEFAULT_PARALLEL),
+        )
+
+        self.arg_parser.add_argument(
+            '-t', '--timeout', metavar="SECONDS", dest='timeout', type=int,
+            action=TimeoutOptionAction,
+            help=(
+                "The timout in seconds for requesting a particular RBL entry. "
+                "Default: {} seconds").format(DEFAULT_TIMEOUT)
+        )
+
+        self.arg_parser.add_argument(
+            '--check-hostname-too', action='store_true', dest='check_hostname',
+            help=(
+                'Checking also the hostname itself for an entry in RBL lists, if '
+                'the given hostname with "-H" is not an IP address.'),
+        )
+
+        self.arg_parser.add_argument(
+            '-H', '--host', metavar="HOST_OR_ADDRESS", dest='host', required=True,
+            help='The hostname or the IP address to check for an entry in RBL lists.',
+        )
+
+        self.arg_parser.add_argument(
+            "-h", "--help", action='help', dest='help',
+            help='Show this help message and exit.'
+        )
+
+        self.arg_parser.add_argument(
+            "--usage", action='store_true', dest='usage',
+            help="Display brief usage message and exit."
+        )
+
+        v_msg = "Version of %(prog)s: {}".format(self.version)
+        self.arg_parser.add_argument(
+            "-V", '--version', action='version', version=v_msg,
+            help="Show program's version number and exit."
+        )
+
+    # -------------------------------------------------------------------------
+    def perform_arg_parser(self):
+        """
+        Method for parsing arguments.
+        """
+
+        self.args = self.arg_parser.parse_args()
+
+        if self.args.usage:
+            self.arg_parser.print_usage(sys.stdout)
+            sys.exit(0)
+
+        if self.args.verbose is not None and self.args.verbose > self.verbose:
+            self.verbose = self.args.verbose
+
+        if self.args.warn:
+            self.limit_warn = self.args.warn
+        if self.args.crit:
+            self.limit_crit = self.args.crit
+        if self.args.timeout:
+            self.limit_timeout = self.args.timeout
+        if self.args.parallel:
+            self.parallel = self.args.parallel
+
+    # -------------------------------------------------------------------------
+    def read_rbl_server_list(self):
+        """Reading the file with the list of the RBL servers."""
+        listfile = Path(__file__).parent / 'rbl-serverlist.txt'
+        if not listfile.exists():
+            raise RuntimeError('File {!r} not found.'.format(str(listfile)))
+
+        LOG.debug('Reading {!r} ...'.format(str(listfile)))
+        with listfile.open('rt', encoding='utf-8') as fh:
+            for line in fh.read().splitlines():
+                line = line.strip()
+                if line == '' or line.startswith('#'):
+                    continue
+                self.blacklists.append(line)
+
+    # -------------------------------------------------------------------------
+    def post_init(self):
+        """Tasks to do at the end of the initialization."""
+        addr = self.to_ipaddress(self.args.host)
+        if addr:
+            if addr.version != 4:
+                msg = 'UNKNOWN - IPv6 addresses like {!r} are not supported.'.format(
+                    self.args.host)
+                print(msg)
+                sys.exit(state.unknown)
+            LOG.debug("Checking IP address {!r}.".format(str(addr)))
+            self.ip2check = addr
+        else:
+            try:
+                LOG.debug("Trying to resolv {!r}.".format(str(self.args.host)))
+                addresses = self.get_address_of_host(self.args.host)
+            except MonitoringError as e:
+                LOG.info(str(e))
+                msg = 'UNKNOWN - ' + str(e)
+                print(msg)
+                sys.exit(state.unknown)
+            if addresses:
+                self.ip2check = addresses[0]
+                LOG.info("Checking IP address {!r}.".format(str(self.ip2check)))
+                if self.args.check_hostname:
+                    LOG.info("Checking also host {!r}.".format(self.args.host))
+                    self.host2check = self.args.host
+            else:
+                msg = 'UNKNOWN - Host {!r} seems not to have an IP address.'.format(
+                    self.args.host)
+                print(msg)
+                sys.exit(state.unknown)
+
+        self.ip_reverse = self.ip2check.reverse_pointer.replace('.in-addr.arpa', '')
+        self.re_ip_reverse = re.compile(r'^' + re.escape(self.ip_reverse) + r'\.')
+
+    # -------------------------------------------------------------------------
+    def to_ipaddress(self, value):
+        """
+        Trying to convert the given value to an ipaddress object.
+
+        If not successful, None will be returned.
+        """
+        try:
+            address = ipaddress.ip_address(value)
+        except ValueError as e:
+            LOG.debug(str(e))
+            return None
+        return address
+
+    # -------------------------------------------------------------------------
+    def get_address_of_host(self, host, use_timeout=True, only_ipv4=True):
+        """
+        Trying to get the IP address of the given hostname.
+
+        It returns the found addresses as a list of ipaddress objects.
+        """
+
+        addresses = []
+
+        def request_alarm_caller(signum, sigframe):
+            raise RequestTimeoutError(self.timeout, host)
+
+        if use_timeout:
+            signal.signal(signal.SIGALRM, request_alarm_caller)
+            signal.alarm(self.timeout)
+
+        try:
+            for addrinfo in socket.getaddrinfo(host, 80):
+                if addrinfo[0] == socket.AF_INET or not only_ipv4:
+                    addr = self.to_ipaddress(addrinfo[4][0])
+                    addresses.append(addr)
+        except socket.gaierror as e:
+            raise HostNotFoundError(host, str(e))
+
+        if use_timeout:
+            signal.alarm(0)
+
+        if addresses and self.verbose > 2:
+            LOG.debug("Got addresses for host {!r}:\n".format(host) + pp(addresses))
+        return addresses
+
+    # -------------------------------------------------------------------------
+    def init_logging(self):
+        """
+        Initialize the logger object.
+        It creates a loghandler with all output to STDERR.
+
+        @return: None
+        """
+
+        log_level = logging.WARN
+        if self.verbose:
+            if self.verbose > 1:
+                log_level = logging.DEBUG
+            else:
+                log_level = logging.INFO
+
+        root_logger = logging.getLogger()
+        root_logger.setLevel(log_level)
+
+        # create formatter
+        format_str = ''
+        if self.verbose:
+            format_str = '[%(asctime)s]: '
+        format_str += self.appname + ': '
+        if self.verbose:
+            if self.verbose > 1:
+                format_str += '%(name)s(%(lineno)d) %(funcName)s() '
+            else:
+                format_str += '%(name)s '
+        format_str += '%(levelname)s - %(message)s'
+        formatter = logging.Formatter(format_str)
+
+        # create log handler for console output
+        lh_console = logging.StreamHandler(sys.stderr)
+        lh_console.setLevel(log_level)
+        lh_console.setFormatter(formatter)
+
+        root_logger.addHandler(lh_console)
+
+        return
+
+    # -------------------------------------------------------------------------
+    def __call__(self):
+        """Magic method to make the object callable."""
+        self.run()
+
+    # -------------------------------------------------------------------------
+    def run(self):
+        """Execute the underlaying actions."""
+        blacklists = copy.copy(self.blacklists)
+
+        cur_len = len(blacklists)
+        while cur_len > 1:
+            index = random.randrange(0, cur_len)
+            rbl = blacklists.pop(index)
+            addr_rec = self.ip_reverse + '.' + rbl
+            self.records2check.append(addr_rec)
+            cur_len = len(blacklists)
+
+        rbl = blacklists.pop(0)
+        addr_rec = self.ip_reverse + '.' + rbl
+        self.records2check.append(addr_rec)
+
+        self.count_checkings = len(self.records2check)
+
+        LOG.debug("Addresses to check:\n" + pp(self.records2check))
+        LOG.info("Number of addresses to check: {}".format(self.count_checkings))
+
+        self.get_rbl_entries()
+
+    # -------------------------------------------------------------------------
+    def get_rbl_entry(self, addr_rec):
+        """Working (threaded) method for getting a rbl entry."""
+        LOG.debug("Trying to get address of {!r} ...".format(addr_rec))
+        addr = None
+        rbl = self.re_ip_reverse.sub('', addr_rec)
+        start_time = timeit.default_timer()
+        try:
+            addresses = self.get_address_of_host(addr_rec, use_timeout=False)
+        except MonitoringError as e:
+            elapsed = timeit.default_timer() - start_time
+            LOG.info('It took {sec:0.3f} seconds to get no response for DNSBL {rbl}.'.format(
+                sec=elapsed, rbl=rbl))
+
+            if self.verbose > 1:
+                LOG.debug(str(e))
+            return (addr_rec, None)
+
+        elapsed = timeit.default_timer() - start_time
+        LOG.info('It took {sec:0.3f} seconds to get response for DNSBL {rbl}.'.format(
+            sec=elapsed, rbl=rbl))
+
+        addr = []
+        if addresses:
+            for addr_obj in addresses:
+                addr_str = str(addr_obj)
+                if addr_str not in addr:
+                    addr.append(addr_str)
+            LOG.info("Got RBL entry for {a!r}: {e!r}".format(a=addr_rec, e=pp(addr)))
+
+        return (addr_rec, addr)
+
+    # -------------------------------------------------------------------------
+    def get_rbl_entries(self):
+
+        results = {}
+        future_to_addr_rec = {}
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=self.parallel) as executor:
+            for addr_rec in self.records2check:
+                future = executor.submit(self.get_rbl_entry, addr_rec)
+                future_to_addr_rec[future] = addr_rec
+
+            for future in concurrent.futures.as_completed(future_to_addr_rec):
+                addr_rec = future_to_addr_rec[future]
+                data = future.result()
+                results[addr_rec] = data[1]
+
+        LOG.debug("Got results:\n" + pp(results))
+
+        re_wo_ip = re.compile(r'^\d+\.\d+\.\d+\.\d+\.')
+
+        self.count_entries = 0
+        rbls_found = []
+        for addr_rec in results:
+            if results[addr_rec]:
+                for address in results[addr_rec]:
+                    if address.startswith('127.0.0'):
+                        self.count_entries += 1
+                        rbls_found.append(re_wo_ip.sub('', addr_rec))
+                        break
+
+        LOG.info("Found number of RBL entries: {}".format(self.count_entries))
+
+        LOG.info("Critical limit is {c}, warning limit is {w}.".format(
+            c=self.limit_crit, w=self.limit_warn))
+        prefix = 'OK'
+        if self.count_entries >= self.limit_crit:
+            self.state = state.critical
+            prefix = 'CRITICAL'
+        elif self.count_entries >= self.limit_warn:
+            self.state = state.warning
+            prefix = 'WARNING'
+
+        msg = prefix + ' - No RBL entries for host {!r} found.'.format(self.args.host)
+        if self.count_entries > 1:
+            msg = prefix + " - Found {e} RBL entries for host {h!r}: {r}".format(
+                e=self.count_entries, h=self.args.host, r=', '.join(rbls_found))
+        elif self.count_entries == 1:
+            msg = prefix + " - Found one RBL entry for host {h!r}: {r}".format(
+                h=self.args.host, r=rbls_found[0])
+
+        msg += ' | total_entries={total};;;0; found_entries={found};{warn};{crit};0;'.format(
+            total=self.count_checkings, found=self.count_entries,
+            warn=self.limit_warn, crit=self.limit_crit)
+
+        print(msg)
+        sys.exit(self.state)
+
+
+# =============================================================================
+
+if __name__ == '__main__':
+    app = CheckRblListsApp()
+
+    if app.verbose > 2:
+        print("{c}-Object:\n{a}".format(
+            c=app.__class__.__name__, a=pp(app.__dict__)), file=sys.stderr)
+
+    app()
+
+    sys.exit(0)
+
+
+
+# vim: filetype=python list
