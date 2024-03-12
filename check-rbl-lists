@@ -24,6 +24,9 @@ import signal
 import socket
 import sys
 import textwrap
+import timeit
+
+from pathlib import Path
 
 import concurrent.futures
 
@@ -249,88 +252,6 @@ class CheckRblListsApp(object):
     Domain Name System blocklist.
     """)
 
-    default_blacklists = [
-        'b.barracudacentral.org',
-        'bl.spamcannibal.org',
-        'blacklist.woody.ch',
-        'cdl.anti-spam.org.cn',
-        'db.wpbl.info',
-        'dnsbl.inps.de',
-        'drone.abuse.ch',
-        'dul.dnsbl.sorbs.net',
-        'dynip.rothen.com',
-        'images.rbl.msrbl.net',
-        'korea.services.net',
-        'ohps.dnsbl.net.au',
-        'osps.dnsbl.net.au',
-        'owps.dnsbl.net.au',
-        'probes.dnsbl.net.au',
-        'psbl.surriel.com',
-        'relays.bl.gweep.ca',
-        'residential.block.transip.nl',
-        'sbl.spamhaus.org',
-        'socks.dnsbl.sorbs.net',
-        'spam.rbl.msrbl.net',
-        'spamrbl.imp.ch',
-        'tor.dnsbl.sectoor.de',
-        'ubl.unsubscore.com',
-        'virus.rbl.msrbl.net',
-        'xbl.spamhaus.org',
-        'sbl-xbl.spamhaus.org',
-        'bl.deadbeef.com',
-        'bl.spamcop.net',
-        'bogons.cymru.com',
-        'combined.abuse.ch',
-        # 'dnsbl.ahbl.org',
-        'dnsbl.njabl.org',
-        'drone.abuse.ch',
-        'dul.ru',
-        # 'fl.chickenboner.biz',
-        'ips.backscatterer.org',
-        'misc.dnsbl.sorbs.net',
-        'omrs.dnsbl.net.au',
-        'osrs.dnsbl.net.au',
-        'pbl.spamhaus.org',
-        'proxy.bl.gweep.ca',
-        'rbl.interserver.net',
-        'relays.bl.kundenserver.de',
-        'ricn.dnsbl.net.au',
-        'short.rbl.jp',
-        'spam.abuse.ch',
-        'spam.spamrats.com',
-        't3direct.dnsbl.net.au',
-        'torserver.tor.dnsbl.sectoor.de',
-        'virbl.bit.nl',
-        'web.dnsbl.sorbs.net',
-        'zen.spamhaus.org',
-        # 'bl.emailbasura.org',
-        'blackholes.five-ten-sg.com',
-        'cbl.abuseat.org',
-        'combined.rbl.msrbl.net',
-        'dnsbl.cyberlogic.net',
-        'dnsbl.sorbs.net',
-        'duinv.aupads.org',
-        'dyna.spamrats.com',
-        'http.dnsbl.sorbs.net',
-        'ix.dnsbl.manitu.net',
-        'noptr.spamrats.com',
-        'orvedb.aupads.org',
-        'owfs.dnsbl.net.au',
-        'phishing.rbl.msrbl.net',
-        'proxy.block.transip.nl',
-        'rdts.dnsbl.net.au',
-        'relays.nether.net',
-        'rmst.dnsbl.net.au',
-        'smtp.dnsbl.sorbs.net',
-        'spam.dnsbl.sorbs.net',
-        'spamlist.or.kr',
-        # 'tor.ahbl.org',
-        'ubl.lashback.com',
-        'virus.rbl.jp',
-        'wormrbl.imp.ch',
-        'zombie.dnsbl.sorbs.net',
-    ]
-
     # -------------------------------------------------------------------------
     @classmethod
     def get_generic_appname(cls, appname=None):
@@ -357,7 +278,7 @@ class CheckRblListsApp(object):
         self.limit_warn = DEFAULT_LIMIT_WARN
         self.limit_crit = DEFAULT_LIMIT_CRIT
 
-        self.blacklists = copy.copy(self.default_blacklists)
+        self.blacklists = []
         self.records2check = []
         self.host2check = None
         self.ip2check= None
@@ -371,6 +292,7 @@ class CheckRblListsApp(object):
         self.perform_arg_parser()
         self.init_logging()
 
+        self.read_rbl_server_list()
         self.post_init()
 
     # -------------------------------------------------------------------------
@@ -470,6 +392,21 @@ class CheckRblListsApp(object):
             self.parallel = self.args.parallel
 
     # -------------------------------------------------------------------------
+    def read_rbl_server_list(self):
+        """Reading the file with the list of the RBL servers."""
+        listfile = Path(__file__).parent / 'rbl-serverlist.txt'
+        if not listfile.exists():
+            raise RuntimeError('File {!r} not found.'.format(str(listfile)))
+
+        LOG.debug('Reading {!r} ...'.format(str(listfile)))
+        with listfile.open('rt', encoding='utf-8') as fh:
+            for line in fh.read().splitlines():
+                line = line.strip()
+                if line == '' or line.startswith('#'):
+                    continue
+                self.blacklists.append(line)
+
+    # -------------------------------------------------------------------------
     def post_init(self):
         """Tasks to do at the end of the initialization."""
         addr = self.to_ipaddress(self.args.host)
@@ -503,6 +440,7 @@ class CheckRblListsApp(object):
                 sys.exit(state.unknown)
 
         self.ip_reverse = self.ip2check.reverse_pointer.replace('.in-addr.arpa', '')
+        self.re_ip_reverse = re.compile(r'^' + re.escape(self.ip_reverse) + r'\.')
 
     # -------------------------------------------------------------------------
     def to_ipaddress(self, value):
@@ -625,12 +563,23 @@ class CheckRblListsApp(object):
         """Working (threaded) method for getting a rbl entry."""
         LOG.debug("Trying to get address of {!r} ...".format(addr_rec))
         addr = None
+        rbl = self.re_ip_reverse.sub('', addr_rec)
+        start_time = timeit.default_timer()
         try:
             addresses = self.get_address_of_host(addr_rec, use_timeout=False)
         except MonitoringError as e:
+            elapsed = timeit.default_timer() - start_time
+            LOG.info('It took {sec:0.3f} seconds to get no response for DNSBL {rbl}.'.format(
+                sec=elapsed, rbl=rbl))
+
             if self.verbose > 1:
                 LOG.debug(str(e))
             return (addr_rec, None)
+
+        elapsed = timeit.default_timer() - start_time
+        LOG.info('It took {sec:0.3f} seconds to get response for DNSBL {rbl}.'.format(
+            sec=elapsed, rbl=rbl))
+
         addr = []
         if addresses:
             for addr_obj in addresses:
@@ -665,8 +614,11 @@ class CheckRblListsApp(object):
         rbls_found = []
         for addr_rec in results:
             if results[addr_rec]:
-                self.count_entries += 1
-                rbls_found.append(re_wo_ip.sub('', addr_rec))
+                for address in results[addr_rec]:
+                    if address.startswith('127.0.0'):
+                        self.count_entries += 1
+                        rbls_found.append(re_wo_ip.sub('', addr_rec))
+                        break
 
         LOG.info("Found number of RBL entries: {}".format(self.count_entries))
 

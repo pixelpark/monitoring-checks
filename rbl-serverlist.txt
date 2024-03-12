@@ -42,7 +42,7 @@ dul.dnsbl.sorbs.net
 dul.ru
 dyna.spamrats.com
 dynip.rothen.com
-# fl.chickenboner.biz
+fl.chickenboner.biz
 forbidden.icm.edu.pl
 hil.habeas.com
 http.dnsbl.sorbs.net
@@ -52,7 +52,7 @@ ips.backscatterer.org
 ix.dnsbl.manitu.net
 korea.services.net
 mail-abuse.blacklist.jippg.org
-# misc.dnsbl.sorbs.net
+misc.dnsbl.sorbs.net
 no-more-funn.moensted.dk
 noptr.spamrats.com
 ohps.dnsbl.net.au
