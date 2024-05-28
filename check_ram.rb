@@ -27,8 +27,8 @@ rescue StandardError => e
   exit 3
 end
 
-used_perc      = ((facter['memory.system']['used_bytes'].to_f / facter['memory.system']['total_bytes'].to_f) * 100).round(2)
-available_perc = ((facter['memory.system']['available_bytes'].to_f / facter['memory.system']['total_bytes'].to_f) * 100).round(2)
+used_perc      = ((facter['memory.system']['used_bytes'].to_f / facter['memory.system']['total_bytes']) * 100).round(2)
+available_perc = ((facter['memory.system']['available_bytes'].to_f / facter['memory.system']['total_bytes']) * 100).round(2)
 
 status = if used_perc >= @options[:critical]
            2
