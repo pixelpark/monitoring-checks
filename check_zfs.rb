@@ -15,6 +15,7 @@
 
 require 'English'
 require 'optparse'
+require 'date'
 
 STATES = {
   0 => 'OK',
@@ -241,6 +242,7 @@ divisor = options.unit.divisor
 output = ''
 perfdata = ''
 status = 0
+status_msg = 'Status of ZFS pools'
 
 pools.each do |pool|
   pool_status = %x(#{zpool} status #{pool})
@@ -262,23 +264,37 @@ pools.each do |pool|
     limit_usage_crit = (ztotal * options.crit / 100 / divisor).round(2)
   end
 
-  if options.check_scan && pool_status.key?('scan')
+  if options.check_scan
     # TODO: read pool_status['scan'] and check the date again local time
     # scrub repaired 0B in 00:01:40 with 0 errors on Mon Dec  7 11:25:37 2020
-    status = (3 if pool_status['scan'].empty?)
+    if !pool_status.key?('scan') || pool_status['scan'].empty?
+      status = 3
+      status_msg = 'No scan has been run yet.'
+    elsif (var = pool_status['scan'].match('\son\s(.*)\z'))
+      if DateTime.parse(var[1]) <= (DateTime.now - 90)
+        status = 2
+        status_msg = 'Last scrub is longer than 90 days ago.'
+      end
+    else
+      status = 3
+      status_msg = '"scan" field could not been parsed for a date of last scrub.'
+    end
   end
 
-  status = if status < 2 &&
-              (zusage >= options.crit ||
-              pool_status['state']  != 'ONLINE' ||
-              pool_status['errors'] != 'No known data errors')
-             2
-           elsif status < 1 &&
-                 (zusage >= options.warn ||
-                 (pool_status.key?('status') && !pool_status['status'].empty?) ||
-                 (pool_status.key?('action') && !pool_status['action'].empty?))
-             1
-           end
+  if status < 2 &&
+     (zusage >= options.crit ||
+     pool_status['state']  != 'ONLINE' ||
+     pool_status['errors'] != 'No known data errors')
+    status = 2
+  elsif status < 1 &&
+        zusage >= options.warn
+    status = 1
+  elsif status < 1 &&
+        ((pool_status.key?('status') && !pool_status['status'].empty?) ||
+        (pool_status.key?('action') && !pool_status['action'].empty?))
+    status = 1
+    status_msg = 'See "status" or "action" field for information.'
+  end
 
   output += "\n\nZFS Pool '#{pool}'\n"
   output += "State:  #{pool_status['state']}\n"
@@ -307,7 +323,7 @@ pools.each do |pool|
   perfdata += "free_#{pool}=#{o_zavailable}#{unit};;;"
 end
 
-puts "#{STATES[status]} - Status of ZFS pools#{output} | #{perfdata}"
+puts "#{STATES[status]} - #{status_msg}#{output} | #{perfdata}"
 exit status
 
-# vim: ts=4 et
+# vim: ts=2 et
