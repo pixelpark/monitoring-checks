@@ -16,6 +16,13 @@
 require 'optparse'
 require 'pp'
 
+STATES = {
+  0 => 'OK',
+  1 => 'WARNING',
+  2 => 'CRITICAL',
+  3 => 'UNKOWN'
+}.freeze
+
 Unit = Struct.new(:mu, :o_mu, :divisor)
 
 def find_mu mu
@@ -52,11 +59,11 @@ end
 
 class OptparseCheckZfs
 
-    Version = '0.2.5'
+    Version = '0.3.0'
 
     class ScriptOptions
 
-        attr_accessor :verbose, :pools, :warn, :crit, :unit
+        attr_accessor :verbose, :pools, :warn, :crit, :unit, :check_scan
 
         def initialize
 
@@ -64,6 +71,7 @@ class OptparseCheckZfs
             self.warn = 80.0
             self.crit = 90.0
             self.unit = find_mu('b')
+            self.check_scan = false
             self.verbose = false
 
         end
@@ -76,7 +84,7 @@ class OptparseCheckZfs
 
             msg = "Nagios/Icinga plugin to check usage of a particular ZFS pool or all ZFS pools."
             msg += "\n\n"
-            msg += "Usage: check_zfs.rb [-p POOL] [-w USAGE_PERCENT] [-c USAGE_PERCENT] [-u b|k|m|g|t]"
+            msg += "Usage: check_zfs.rb [-p POOL] [-w USAGE_PERCENT] [-c USAGE_PERCENT] [-u b|k|m|g|t] [-s]"
             parser.banner = msg
             parser.separator ""
             parser.separator "Check options:"
@@ -86,6 +94,7 @@ class OptparseCheckZfs
             define_unit(parser)
             define_warn(parser)
             define_crit(parser)
+            define_check_scan(parser)
             boolean_verbose_option(parser)
 
             parser.separator ""
@@ -133,6 +142,13 @@ class OptparseCheckZfs
             end
         end
 
+        def define_check_scan(parser)
+            parser.on("-s", "--[no-]scan-check",
+                      'Check if an scan did run in the last 90 days.') do |check|
+                self.check_scan = check
+            end
+        end
+
         def boolean_verbose_option(parser)
             # Boolean switch.
             parser.on("-v", "--[no-]verbose", "Run verbosely") do |v|
@@ -161,42 +177,72 @@ class OptparseCheckZfs
 
 end  # class OptparseExample
 
+def parse_status(input)
+    #  pool: z0
+    #  state: ONLINE
+    # status: One or more devices has experienced an unrecoverable error.  An
+    #     attempt was made to correct the error.  Applications are unaffected.
+    # action: Determine if the device needs to be replaced, and clear the errors
+    #     using 'zpool clear' or replace the device with 'zpool replace'.
+    #    see: https://openzfs.github.io/openzfs-docs/msg/ZFS-8000-9P
+    # config:
+    # 
+    #     NAME        STATE     READ WRITE CKSUM
+    #     z0          ONLINE       0     0     0
+    #       sdb       ONLINE       0     2     0
+    # 
+    # errors: No known data errors
+
+    # the first element will is an phantom of the parsing and dropped by [1..]
+    parsed = input.split(%r{(?:\n|^)\s*(\w*):\s*}m)[1..].each_slice(2).to_h
+    # cleanup indent and unneeded linebreaks
+    parsed = parsed.each do |key, value|
+        value = value.split("\n").map(&:strip)
+        parsed[key] = case key
+                      when 'config'
+                          header = value[0].split().map(&:strip)
+                          value[1..].map do |line|
+                              line.split().map.with_index do |value, index|
+                                  [ header[index], value.strip ]
+                              end.to_h
+                          end
+                      else
+                          value.join(' ')
+                      end
+    end
+rescue StandardError => e
+    puts "#{STATES[3]} - Pasing of zfs status failed\n#{e.message}"
+    exit 3
+end
+
 checkfs = OptparseCheckZfs.new
 options = checkfs.parse(ARGV)
-if options.verbose then
-    pp options # checkfs.options
-end
+pp options if options.verbose # checkfs.options
 
 zpool = which 'zpool'
-unless zpool then
-    puts "UNKNOWN - Command 'zpool' not found."
+unless zpool
+    puts "#{STATES[3]} - Command 'zpool' not found."
     exit 3
 end
-if options.verbose then
-    pp zpool
-end
+pp zpool if options.verbose
 
 zfs = which 'zfs'
-unless zfs then
-    puts "UNKNOWN - Command 'zfs' not found."
+unless zfs
+    puts "#{STATES[3]} - Command 'zfs' not found."
     exit 3
 end
-if options.verbose then
-    pp zfs
-end
+pp zfs if options.verbose
 
-if options.pools.empty? then
-    pools = %x( #{zpool} list -H | awk '{print $1}' ).strip!.split(/\n/)
-    if pools.empty? then
-        puts "UNKNOWN - No ZFS pools found."
+if options.pools.empty?
+    pools = %x( #{zpool} list -H -o name ).lines(chomp: true)
+    if pools.empty?
+        puts "#{STATES[3]} - No ZFS pools found."
         exit 3
     end
 else
     pools = options.pools
 end
-if options.verbose then
-    pp pools
-end
+pp pools if options.verbose
 
 
 unit = options.unit.o_mu
@@ -204,28 +250,21 @@ divisor = options.unit.divisor
 
 output = ''
 perfdata = ''
-state_total = [0, 'OK']
+status = 0
 
 for pool in pools do
-
-    uhu = %x( #{zpool} list #{pool} >/dev/null 2>&1 )
-    unless $?.success? then
-        puts "UNKNOWN - ZFS Pool '#{pool}' does not exists."
+    pool_status = %x( #{zpool} status #{pool} )
+    unless $?.success?
+        puts "#{STATES[3]} - Failed to get status of ZFS Pool '#{pool}'. It may not exist."
         exit 3
     end
+    pool_status = parse_status(pool_status)
 
-    pool_values = %x( #{zfs} get -o value -Hp used,available #{pool}).split("\n")
-    pool_state  = %x( #{zpool} status #{pool} | grep 'state:'  | awk -F':' '{print $2}' ).strip!
-    pool_errors = %x( #{zpool} status #{pool} | grep 'errors:' | awk -F':' '{print $2}' ).strip!
-    pool_action = %x( #{zpool} status #{pool} | grep 'action:' | awk -F':' '{print $2}' ).strip!
-    pool_scan   = %x( #{zpool} status #{pool} | grep 'scan:'   | sed -e 's/[ 	]*scan://' ).strip!
+    zused, zavailable  = %x( #{zfs} get -o value -Hp used,available #{pool}).lines(chomp: true).map(&:to_i)
+    ztotal = zused + zavailable
+    zusage = ((zused.to_f / ztotal.to_f) * 100).round(2)
 
-    zused      = pool_values[0].to_i
-    zavailable = pool_values[1].to_i
-    ztotal     = zused + zavailable
-    zusage     = ((zused.to_f / ztotal.to_f) * 100).round(2)
-
-    if divisor != 1 then
+    if divisor != 1
         limit_usage_warn = (ztotal * options.warn / 100 / divisor).round(2)
         limit_usage_crit = (ztotal * options.crit / 100 / divisor).round(2)
     else
@@ -233,27 +272,39 @@ for pool in pools do
         limit_usage_crit = (ztotal * options.crit / 100).round(0)
     end
 
-    if state_total[0] < 2 then
+    if options.check_scan && pool_status.key?('scan')
+        # TODO read pool_status['scan'] and check the date again local time
+        # scrub repaired 0B in 00:01:40 with 0 errors on Mon Dec  7 11:25:37 2020
+        status = if pool_status['scan'].empty?
+            3
+        else
 
-        state_total = [1, 'WARNING']  if zusage >= options.warn
-        state_total = [2, 'CRITICAL'] if zusage >= options.crit
-        state_total = [2, 'CRITICAL'] if pool_state  != 'ONLINE'
-        state_total = [2, 'CRITICAL'] if pool_errors != 'No known data errors'
+        end
+    end
 
+    status = if status < 2 &&
+        ( zusage >= options.crit ||
+        pool_status['state']  != 'ONLINE' ||
+        pool_status['errors'] != 'No known data errors')
+        2
+    elsif status < 1 &&
+        (zusage >= options.warn ||
+        pool_status.key?('status') && !pool_status['status'].empty? ||
+        pool_status.key?('action') && !pool_status['action'].empty?)
+        1
     end
 
     output += "\n\nZFS Pool '#{pool}'\n"
-    output += "State:  #{pool_state}\n"
-    output += "Errors: #{pool_errors}\n"
-    output += "Action: #{pool_action}\n"
-    output += "Scan:   #{pool_scan}\n"
+    output += "State:  #{pool_status['state']}\n"
+    output += "Errors: #{pool_status['errors']}\n"
+    output += "Status: #{pool_status['status']}\n" if pool_status.key?('status')
+    output += "Action: #{pool_status['action']}\n" if pool_status.key?('action')
+    output += "Scan:   #{pool_status['scan']}\n"
     output += "Usage:  #{zusage}%"
 
-    unless perfdata == '' then
-        perfdata += ' '
-    end
+    perfdata += ' ' unless perfdata.empty?
 
-    if divisor != 1 then
+    if divisor != 1
         o_zused      = (zused.to_f / divisor).round(2)
         o_zavailable = (zavailable.to_f / divisor).round(2)
         o_ztotal     = (ztotal.to_f / divisor).round(2)
@@ -267,10 +318,9 @@ for pool in pools do
     perfdata += "total_#{pool}=#{o_ztotal}#{unit};;; "
     perfdata += "used_#{pool}=#{o_zused}#{unit};#{limit_usage_warn};#{limit_usage_crit}; "
     perfdata += "free_#{pool}=#{o_zavailable}#{unit};;;"
-
 end
 
-puts "#{state_total[1]} - Status of ZFS pools#{output} | #{perfdata}"
-exit state_total[0]
+puts "#{STATES[status]} - Status of ZFS pools#{output} | #{perfdata}"
+exit status
 
 # vim: ts=4 et
