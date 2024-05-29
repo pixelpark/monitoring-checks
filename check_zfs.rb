@@ -199,7 +199,7 @@ def parse_status(input)
                       end.to_h
                     end
                   else
-                    value.join(' ')
+                    value.join("\n\t")
                   end
   end
 rescue StandardError => e
@@ -265,15 +265,18 @@ pools.each do |pool|
   end
 
   if options.check_scan
-    # TODO: read pool_status['scan'] and check the date again local time
-    # scrub repaired 0B in 00:01:40 with 0 errors on Mon Dec  7 11:25:37 2020
     if !pool_status.key?('scan') || pool_status['scan'].empty?
-      status = 3
+      status = 2
       status_msg = 'No scan has been run yet.'
-    elsif (var = pool_status['scan'].match('\son\s(.*)\z'))
-      if DateTime.parse(var[1]) <= (DateTime.now - 90)
+    elsif (var = pool_status['scan'].match('\son\s(.*)$'))
+      if DateTime.strptime(var[1], '%c') <= (DateTime.now - 90)
         status = 2
         status_msg = 'Last scrub is longer than 90 days ago.'
+      end
+    elsif (var = pool_status['scan'].match('scrub in progress since (.*)$'))
+      if (DateTime.strptime(var[1], '%c') + 1) <= DateTime.now
+        status = 2
+        status_msg = 'Current scrub is running over an day.'
       end
     else
       status = 3
