@@ -5,7 +5,6 @@
 
 require 'net/sftp'
 require 'optparse'
-require 'pp'
 
 # gem dependencies
 # - net-ssh
@@ -15,30 +14,30 @@ require 'pp'
 
 @options = {}
 OptionParser.new do |opts|
-  opts.on("-H", "--hostname=HOSTNAME") { |hostname| @options[:hostname] = hostname }
-  opts.on("-i", "--identity=IDENTITY") { |identity| @options[:identity] = identity }
-  opts.on("-p", "--password=PASSWORD") { |password| @options[:password] = password }
-  opts.on("-u", "--username=USERNAME") { |username| @options[:username] = username }
+  opts.on('-H', '--hostname=HOSTNAME') { |hostname| @options[:hostname] = hostname }
+  opts.on('-i', '--identity=IDENTITY') { |identity| @options[:identity] = identity }
+  opts.on('-p', '--password=PASSWORD') { |password| @options[:password] = password }
+  opts.on('-u', '--username=USERNAME') { |username| @options[:username] = username }
 end.parse!
 
 @hostname  = @options[:hostname]
 @username  = @options[:username]
-@identity  = @options[:identity] unless @options[:identity].nil? or @options[:identity].empty?
-@password  = @options[:password] unless @options[:password].nil? or @options[:password].empty?
+@identity  = @options[:identity] unless @options[:identity].nil? || @options[:identity].empty?
+@password  = @options[:password] unless @options[:password].nil? || @options[:password].empty?
 @connected = false
 
 if @hostname.nil?
-  puts "Hostname missing"
+  puts 'Hostname missing'
   exit 1
 end
 
 if @username.nil?
-  puts "Username missing"
+  puts 'Username missing'
   exit 1
 end
 
-if @password.nil? and @identity.nil?
-  puts "Password or Identity has to be set!"
+if @password.nil? && @identity.nil?
+  puts 'Password or Identity has to be set!'
   exit 1
 end
 
@@ -47,12 +46,13 @@ begin
     Net::SFTP.start(
       @hostname,
       @username,
-      :config => false,
-      :non_interactive => true,
-      :password => @password ) do |sftp|
-        sftp.connect do
-          @connected = true
-        end
+      config: false,
+      non_interactive: true,
+      password: @password
+    ) do |sftp|
+      sftp.connect do
+        @connected = true
+      end
     end
   end
 
@@ -60,13 +60,14 @@ begin
     Net::SFTP.start(
       @hostname,
       @username,
-      :config => false,
-      :non_interactive => true,
-      :keys => [@identity],
-      :keys_only => true ) do |sftp|
-        sftp.connect do
-          @connected = true
-        end
+      config: false,
+      non_interactive: true,
+      keys: [@identity],
+      keys_only: true
+    ) do |sftp|
+      sftp.connect do
+        @connected = true
+      end
     end
   end
 rescue Net::SSH::AuthenticationFailed => e

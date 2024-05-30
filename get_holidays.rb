@@ -4,7 +4,6 @@
 require 'date'
 require 'json'
 require 'net/https'
-require 'pp'
 require 'uri'
 require 'yaml'
 
@@ -18,27 +17,23 @@ def get_json(api_key, type, year)
   uri = URI.parse("https://calendarific.com/api/v2/holidays?&api_key=#{api_key}&country=DE&year=#{year}&location=de-be&type=#{type}")
   response = Net::HTTP.get_response(uri)
 
-  if response.code == '200'
-    return JSON.load(response.body)
-  else
-    puts "API Response Code: #{response.code} - #{response}"
-    exit 1
-  end
-end
+  return JSON.parse(response.body) if response.code == '200'
 
-if api_key.nil?
-  puts "Error: You need a api key"
+  puts "API Response Code: #{response.code} - #{response}"
   exit 1
 end
 
-if year.nil?
-  year = Date.today.year
+if api_key.nil?
+  puts 'Error: You need a api key'
+  exit 1
 end
 
-holiday_all      = Array.new
+year = Date.today.year if year.nil?
+
+holiday_all      = []
 holiday_local    = get_json(api_key, 'local', year)
 holiday_national = get_json(api_key, 'national', year)
-holiday_object   = { "holiday" => { "display_name" => 'Holidays', "ranges" => { } } }
+holiday_object   = { 'holiday' => { 'display_name' => 'Holidays', 'ranges' => {} } }
 
 holiday_local['response']['holidays'].each    { |holiday| holiday_all << holiday['date']['iso'] }
 holiday_national['response']['holidays'].each { |holiday| holiday_all << holiday['date']['iso'] }

@@ -124,8 +124,8 @@ when 'HOST', 'SERVICE'
   message += " | *Comment* by `#{options[:notificationauthorname]}`: `#{options[:notificationcomment]}`" if options.include?(:notificationcomment) && !options[:notificationcomment].empty?
   if options.include?(:output) && !options[:output].empty?
     # mattermost has a message length of 16383 chars
-    output = if options[:output].length > 14000
-               "#{options[:output][0..14000]}\n[truncated after 14000 characters]"
+    output = if options[:output].length > 14_000
+               "#{options[:output][0..14_000]}\n[truncated after 14000 characters]"
              else
                options[:output]
              end
