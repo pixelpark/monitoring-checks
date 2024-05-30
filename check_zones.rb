@@ -3,17 +3,15 @@
 # Author: Robert Waffen <robert.waffen@pixelpark.com>
 # Date:   2019-08-09
 
-require 'pp'
-
-if ARGV[0] == '-h'
+if ['-h', '--help'].include?(ARGV[0])
   puts "Usage: #{$PROGRAM_NAME} Zone Unit"
-  puts "---"
+  puts '---'
   puts 'Zone - Zone Name'
   puts 'Unit - b,k,m,g,t'
   exit 0
 end
 
-if not ARGV[0]
+unless ARGV[0]
   puts 'Error: no Zone given'
   exit 1
 end
@@ -21,19 +19,19 @@ end
 zone_name = ARGV[0]
 unit      = ARGV[1]
 
-case unit
-when 'm'
-  divisor = [1024, 'MB']
-when 'g'
-  divisor = [1024 * 1024, 'GB']
-when 't'
-  divisor = [1024 * 1024 * 1024, 'TB']
-else
-  divisor = [1, 'KB']
-end
+divisor = case unit
+          when 'm'
+            [1024, 'MB']
+          when 'g'
+            [1024 * 1024, 'GB']
+          when 't'
+            [1024 * 1024 * 1024, 'TB']
+          else
+            [1, 'KB']
+          end
 
-zone = %x(zoneadm -z #{zone_name} list -p).strip!.split(':')
-zone_space = %x( df -k #{zone[3]} | sed 1d).strip!.split(' ')
+zone = %x(zoneadm -z #{zone_name} list -p).strip.split(':')
+zone_space = %x(df -k #{zone[3]}).lines(chomp: true)[1].strip.split
 
 o_total    = (zone_space[1].to_f / divisor[0]).round(2)
 p_total    = zone_space[1]
