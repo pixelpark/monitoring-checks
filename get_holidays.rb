@@ -30,13 +30,12 @@ end
 
 year = Date.today.year if year.nil?
 
-holiday_all      = []
 holiday_local    = get_json(api_key, 'local', year)
 holiday_national = get_json(api_key, 'national', year)
 holiday_object   = { 'holiday' => { 'display_name' => 'Holidays', 'ranges' => {} } }
 
-holiday_local['response']['holidays'].each    { |holiday| holiday_all << holiday['date']['iso'] }
-holiday_national['response']['holidays'].each { |holiday| holiday_all << holiday['date']['iso'] }
+holiday_all = holiday_local['response']['holidays'].map { |holiday| holiday['date']['iso'] }
+holiday_all += holiday_national['response']['holidays'].map { |holiday| holiday['date']['iso'] }
 
 holiday_all.sort!
 holiday_all.each { |holiday| holiday_object['holiday']['ranges'][holiday] = '00:00-24:00' }
