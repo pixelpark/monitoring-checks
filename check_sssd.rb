@@ -76,8 +76,8 @@ domain_status = domain_list.to_h do |domain|
 end
 
 offline_domains = domain_status.reject { |_domain, values| values['Online status'].casecmp('Online').zero? }
-no_active_servers = domain_status.select { |_domain, values| values['Active servers'].length.zero? }
-no_discovered_servers = domain_status.select { |_domain, values| values['Discovered LDAP servers'].length.zero? }
+no_active_servers = domain_status.select { |_domain, values| values['Active servers'].empty? }
+no_discovered_servers = domain_status.select { |_domain, values| values['Discovered LDAP servers'].empty? }
 
 status, message = if offline_domains.length.positive?
                     [2, "domains offline: '#{offline_domains.keys.join('\', \'')}'"]
@@ -88,7 +88,7 @@ status, message = if offline_domains.length.positive?
                   elsif domain_status.length.positive?
                     [0, "domains online: '#{domain_status.keys.join('\', \'')}'"]
                   else
-                    [2, "no domains configured"]
+                    [2, 'no domains configured']
                   end
 
 output = [
@@ -96,8 +96,8 @@ output = [
   message
 ].join(' - ')
 perfdata = [
-  "no_discovered_servers=#{no_active_servers.length};1;;0;"
-  "no_active_servers=#{no_active_servers.length};1;;0;"
+  "no_discovered_servers=#{no_active_servers.length};1;;0;",
+  "no_active_servers=#{no_active_servers.length};1;;0;",
   "domains_offline=#{offline_domains.length};;1;0;",
   "domains_online=#{domain_status.length};;;0;"
 ].join(' ')
