@@ -1,5 +1,8 @@
 #! /opt/puppetlabs/puppet/bin/ruby
 
+# Author: Robert Waffen <robert.waffen@pixelpark.com>
+# Date:   2020-11-10
+
 require 'optparse'
 require 'json'
 
