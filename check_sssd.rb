@@ -31,7 +31,7 @@ def domain_list
 
   result.lines.map(&:chomp)
 rescue StandardError => e
-  puts "#{STATES[3]} - errors on collecting domain list from sssd\n#{e.message}"
+  puts "#{STATES[2]} - errors on collecting domain list from sssd\n#{e.message}"
   exit 3
 end
 
@@ -66,7 +66,7 @@ def domain_status(domain)
     ]
   end
 rescue StandardError => e
-  puts "#{STATES[3]} - errors on collecting domain status of '#{domain}'\n#{e.message}\n#{e.backtrace}"
+  puts "#{STATES[2]} - errors on collecting domain status of '#{domain}'\nMessage: #{e.message}\nBacktrace: #{e.backtrace}"
   exit 3
 end
 
