@@ -304,6 +304,29 @@ class MonitoringPluginError(MonitoringException):
 
 
 # =============================================================================
+class ApiError(MonitoringPluginError):
+    """Base class for more complex exceptions."""
+
+    # -------------------------------------------------------------------------
+    def __init__(self, code, msg, uri=None):
+        """Initialize the ApiError object."""
+        self.code = code
+        self.msg = msg
+        self.uri = uri
+
+    # -------------------------------------------------------------------------
+    def __str__(self):
+        """Typecast into a string."""
+        if self.uri:
+            msg = 'Got a {code} error code from {uri!r}: {msg}'.format(
+                code=self.code, uri=self.uri, msg=self.msg)
+        else:
+            msg = 'Got a {code} error code: {msg}'.format(code=self.code, msg=self.msg)
+
+        return msg
+
+
+# =============================================================================
 class FunctionNotImplementedError(MonitoringPluginError, NotImplementedError):
     """
     Error class for not implemented functions.
