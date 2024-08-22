@@ -28,11 +28,12 @@ import urllib3
 
 # Own modules
 
+from monitoring import LogFileOptionAction
 from monitoring import MonitoringPlugin
 from monitoring import ApiError
 from monitoring import pp
 
-__version__ = '0.2.0'
+__version__ = '0.3.0'
 
 LOG = logging.getLogger(__name__)
 
@@ -49,6 +50,8 @@ class CheckRedhatSubscriptionsPlugin(MonitoringPlugin):
     library_name = 'digitas-rhsm-api-clinet'
     default_timeout = 20
 
+    default_offline_token_file = Path.home() / '.private' / 'rh-download-offline-token.txt'
+
     # -------------------------------------------------------------------------
     def __init__(self):
         """Initialize this object."""
@@ -56,6 +59,7 @@ class CheckRedhatSubscriptionsPlugin(MonitoringPlugin):
         self.rhsm_api_url = self.default_rhsm_api_url
 
         self.offline_token = None
+        self.offline_token_file = self.default_offline_token_file
         self.access_token = None
         self.timeout = self.default_timeout
         self.user_agent = '{}/{}'.format(self.library_name, __version__)
@@ -81,6 +85,7 @@ class CheckRedhatSubscriptionsPlugin(MonitoringPlugin):
         ret = super(CheckRedhatSubscriptionsPlugin, self).as_dict()
 
         ret['offline_token'] = self.offline_token
+        ret['offline_token_file'] = self.offline_token_file
         ret['access_token'] = self.access_token
         ret['redhat_sso_url'] = self.redhat_sso_url
         ret['rhsm_api_url'] = self.rhsm_api_url
@@ -94,11 +99,22 @@ class CheckRedhatSubscriptionsPlugin(MonitoringPlugin):
         """Initializing special command line options for this plugin."""
         check_group = self.arg_parser.add_argument_group('Options for checking Red Hat subscriptions')
 
-        check_group.add_argument(
-            '-O', '--offline-tokem', metavar='TOKEN', dest='offline_token', required=True,
+        token_group = check_group.add_mutually_exclusive_group()
+
+        token_group.add_argument(
+            '-O', '--offline-token', metavar='TOKEN', dest='offline_token',
             help='The offline token of the Red Hat user {!r} to gain the access token.'.format(
                 self.rhsm_user),
         )
+
+        token_group.add_argument(
+            '-F', '--offline-token-file', metavar='FILE', dest='offline_token_file',
+            action=LogFileOptionAction,
+            help=(
+                'A file containing the offline token of the Red Hat user {u!r} to gain the access '
+                'token. Default: {f!r}.').format(u=self.rhsm_user, f=str(self.offline_token_file)),
+        )
+
 
         check_group.add_argument(
             '--rh-sso-url', metavar='URL', dest='rh_sso_url',
@@ -120,7 +136,10 @@ class CheckRedhatSubscriptionsPlugin(MonitoringPlugin):
         """Post initialization tasks."""
         super(CheckRedhatSubscriptionsPlugin, self).post_init()
 
-        self.offline_token = self.args.offline_token
+        self.offline_token = getattr(self.args, 'offline_token', None)
+
+        if hasattr(self.args, 'offline_token_file') and self.args.offline_token_file:
+            self.offline_token_file = self.args.offline_token_file
 
         if hasattr(self.args, 'rh_sso_url'):
             url = self.args.rh_sso_url
@@ -157,6 +176,36 @@ class CheckRedhatSubscriptionsPlugin(MonitoringPlugin):
             return
 
         self.nagios_exit(self.status_unknown, 'Got no access_token.')
+
+    # -------------------------------------------------------------------------
+    def pre_run(self):
+        """Execute some actions before the main routine."""
+        if self.offline_token:
+            return
+
+        if self.verbose > 1:
+            LOG.debug('Reading Offline token file {!r} ...'.format(str(self.offline_token_file)))
+
+        if not self.offline_token_file.exists():
+            msg = 'Offline token file {!r} does not exists.'.format(str(self.offline_token_file))
+            self.nagios_exit(self.status_unknown, msg)
+            return
+
+        if not self.offline_token_file.is_file():
+            msg = 'Offline token file {!r} is not a regular file.'.format(
+                str(self.offline_token_file))
+            self.nagios_exit(self.status_unknown, msg)
+            return
+
+        if not os.access(self.offline_token_file, os.R_OK):
+            msg = 'Offline token file {!r} is not readable.'.format(str(self.offline_token_file))
+            self.nagios_exit(self.status_unknown, msg)
+            return
+
+        self.offline_token = self.offline_token_file.read_text(
+            encoding='utf-8', errors='surrogateescape').strip()
+
+        LOG.debug('Got offline token from file {!r}.'.format(str(self.offline_token_file)))
 
     # -------------------------------------------------------------------------
     def get_data(self, url, headers=None, may_simulate=False, content_type='application/json'):
@@ -277,7 +326,7 @@ class CheckRedhatSubscriptionsPlugin(MonitoringPlugin):
                 response = self.get_data(url + '?' + options)
             except ApiError as e:
                 self.nagios_exit(self.status_unknown, str(e))
-            if self.verbose > 1:
+            if self.verbose > 3:
                 LOG.debug('Got a list of systems:\n' + pp(response))
             if 'body' in response:
                 for system in response['body']:
@@ -291,7 +340,7 @@ class CheckRedhatSubscriptionsPlugin(MonitoringPlugin):
                 break
 
         LOG.debug('Retrieved {} systems from Ret Hat.'.format(len(self.systems)))
-        if self.verbose > 1:
+        if self.verbose > 2:
             LOG.debug('Got a list of all systems:\n' + pp(self.systems))
 
     # -------------------------------------------------------------------------
