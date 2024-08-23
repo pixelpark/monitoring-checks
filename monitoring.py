@@ -48,7 +48,7 @@ DEFAULT_TERMINAL_HEIGHT = 40
 
 __author__ = 'Frank Brehm <frank@brehm-online.com>'
 __copyright__ = '(C) 2023 by Frank Brehm, Berlin'
-__version__ = '0.5.2'
+__version__ = '0.6.0'
 
 
 # =============================================================================
@@ -301,6 +301,29 @@ class MonitoringPluginError(MonitoringException):
     """Base exception for an exception inside a monitoring plugin."""
 
     pass
+
+
+# =============================================================================
+class ApiError(MonitoringPluginError):
+    """Base class for more complex exceptions."""
+
+    # -------------------------------------------------------------------------
+    def __init__(self, code, msg, uri=None):
+        """Initialize the ApiError object."""
+        self.code = code
+        self.msg = msg
+        self.uri = uri
+
+    # -------------------------------------------------------------------------
+    def __str__(self):
+        """Typecast into a string."""
+        if self.uri:
+            msg = 'Got a {code} error code from {uri!r}: {msg}'.format(
+                code=self.code, uri=self.uri, msg=self.msg)
+        else:
+            msg = 'Got a {code} error code: {msg}'.format(code=self.code, msg=self.msg)
+
+        return msg
 
 
 # =============================================================================
@@ -639,7 +662,7 @@ class MonitoringRange(MonitoringObject):
 
         # strip out any whitespace
         rstr = self.re_ws.sub('', range_str)
-        LOG.debug("Parsing given range %r ...", rstr)
+        # LOG.debug("Parsing given range %r ...", rstr)
 
         self._start = None
         self._end = None
@@ -650,12 +673,12 @@ class MonitoringRange(MonitoringObject):
         if not match:
             raise InvalidRangeError(range_str)
 
-        LOG.debug("Parsing range with regex %r ...", self.match_range)
+        # LOG.debug("Parsing range with regex %r ...", self.match_range)
         match = self.re_range.search(rstr)
         if not match:
             raise InvalidRangeError(range_str)
 
-        LOG.debug("Found range parts: %r.", match.groups())
+        # LOG.debug("Found range parts: %r.", match.groups())
         invert = match.group(1)
         start = match.group(2)
         end = match.group(3)
@@ -680,11 +703,11 @@ class MonitoringRange(MonitoringObject):
                     start = int(start)
                 valid = True
 
-        if start is None:
-            if start_should_infinity:
-                LOG.debug("The start is None, but should be infinity.")
-            else:
-                LOG.debug("The start is None, but should be NOT infinity.")
+        # if start is None:
+        #     if start_should_infinity:
+        #         LOG.debug("The start is None, but should be infinity.")
+        #     else:
+        #         LOG.debug("The start is None, but should be NOT infinity.")
 
         if end is not None:
             if self.re_dot.search(end):
@@ -1768,7 +1791,7 @@ class MonitoringPlugin(MonitoringObject):
             message = self.status_msg
         else:
             if isinstance(message, list) or isinstance(message, tuple):
-                message = ' '.join(lambda x: str(x).strip(), message)
+                message = '\n'.join(lambda x: str(x).strip(), message)
             else:
                 message = str(message).strip()
 
@@ -1783,11 +1806,15 @@ class MonitoringPlugin(MonitoringObject):
                 output = "[no message]"
         else:
             output = self.appname + " " + code
+            lines = []
             if message:
-                output += " - " + message
+                lines = message.splitlines()
+                output += " - " + lines[0]
             pdata = self.all_perfoutput()
             if pdata:
                 output += " | " + pdata
+            if len(lines) > 1:
+                output += '\n' + '\n'.join(lines[1:])
 
         print(output)
         sys.exit(status)

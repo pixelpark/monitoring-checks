@@ -1,0 +1,459 @@
+#!/usr/bin/python3
+# -*- coding: utf-8 -*-
+#
+# Author: Frank Brehm <frank@brehm-online.com
+#         Berlin, Germany, 2024
+# Date:   2024-08-20
+#
+# This module provides a monitoring plugin for checking Red hat subscriptions
+#
+# Documentation of the RedHat API: https://access.redhat.com/management/api
+#
+from __future__ import print_function
+
+import logging
+import copy
+import json
+import os
+import socket
+
+from pathlib import Path
+from urllib.parse import urlencode
+
+# Third party modules
+import requests
+from requests.exceptions import RequestException
+
+import urllib3
+
+# Own modules
+
+from monitoring import LogFileOptionAction
+from monitoring import MonitoringPlugin
+from monitoring import MonitoringThreshold
+from monitoring import ApiError
+from monitoring import pp
+
+__version__ = '0.4.1'
+
+LOG = logging.getLogger(__name__)
+
+
+# =============================================================================
+class CheckRedhatSubscriptionsPlugin(MonitoringPlugin):
+    """Application class for this plugin."""
+
+    default_redhat_sso_url = (
+        'https://sso.redhat.com/auth/realms/redhat-external/protocol/openid-connect/token')
+    default_rhsm_api_url = 'https://api.access.redhat.com/management/v1'
+
+    rhsm_user = 'dpx-downloader'
+    library_name = 'digitas-rhsm-api-clinet'
+    default_timeout = 20
+
+    default_offline_token_file = Path.home() / '.private' / 'rh-download-offline-token.txt'
+
+    # -------------------------------------------------------------------------
+    def __init__(self):
+        """Initialize this object."""
+        self.redhat_sso_url = self.default_redhat_sso_url
+        self.rhsm_api_url = self.default_rhsm_api_url
+
+        self.offline_token = None
+        self.offline_token_file = self.default_offline_token_file
+        self.access_token = None
+        self.timeout = self.default_timeout
+        self.user_agent = '{}/{}'.format(self.library_name, __version__)
+
+        self.systems = []
+
+        desc = (
+            "Checks the company subscription management at Red Hat for corruptions.""")
+
+        super(CheckRedhatSubscriptionsPlugin, self).__init__(version=__version__, description=desc)
+
+    # -------------------------------------------------------------------------
+    def as_dict(self):
+        """
+        Transforms the elements of the object into a dict
+
+        @param short: don't include local properties in resulting dict.
+        @type short: bool
+
+        @return: structure as dict
+        @rtype:  dict
+        """
+        ret = super(CheckRedhatSubscriptionsPlugin, self).as_dict()
+
+        ret['offline_token'] = self.offline_token
+        ret['offline_token_file'] = self.offline_token_file
+        ret['access_token'] = self.access_token
+        ret['redhat_sso_url'] = self.redhat_sso_url
+        ret['rhsm_api_url'] = self.rhsm_api_url
+        ret['timeout'] = self.timeout
+        ret['user_agent'] = self.user_agent
+
+        return ret
+
+    # -------------------------------------------------------------------------
+    def init_arg_parser(self):
+        """Initializing special command line options for this plugin."""
+        check_group = self.arg_parser.add_argument_group('Options for checking Red Hat subscriptions')
+
+        token_group = check_group.add_mutually_exclusive_group()
+
+        token_group.add_argument(
+            '-O', '--offline-token', metavar='TOKEN', dest='offline_token',
+            help='The offline token of the Red Hat user {!r} to gain the access token.'.format(
+                self.rhsm_user),
+        )
+
+        token_group.add_argument(
+            '-F', '--offline-token-file', metavar='FILE', dest='offline_token_file',
+            action=LogFileOptionAction,
+            help=(
+                'A file containing the offline token of the Red Hat user {u!r} to gain the access '
+                'token. Default: {f!r}.').format(u=self.rhsm_user, f=str(self.offline_token_file)),
+        )
+
+
+        check_group.add_argument(
+            '--rh-sso-url', metavar='URL', dest='rh_sso_url',
+            help=(
+                'The URL of the Red Hat Single Sign On service to gain the access token. '
+                'Default: {!r}').format(self.default_redhat_sso_url),
+        )
+
+        check_group.add_argument(
+            '--rhsm_api_url', metavar='URL', dest='rhsm_api_url',
+            help=(
+                'The URL of the Red Hat REST API for managing subscriptions. '
+                'The URL of the Red Hat Single Sign On service to gain the access token. '
+                'Default: {!r}').format(self.default_rhsm_api_url),
+        )
+
+    # -------------------------------------------------------------------------
+    def post_init(self):
+        """Post initialization tasks."""
+        super(CheckRedhatSubscriptionsPlugin, self).post_init()
+
+        self.offline_token = getattr(self.args, 'offline_token', None)
+
+        if hasattr(self.args, 'offline_token_file') and self.args.offline_token_file:
+            self.offline_token_file = self.args.offline_token_file
+
+        if hasattr(self.args, 'rh_sso_url'):
+            url = self.args.rh_sso_url
+            if url and url.strip():
+                self.redhat_sso_url = url.strip()
+
+        if hasattr(self.args, 'rhsm_api_url'):
+            url = self.args.rhsm_api_url
+            if url and url.strip():
+                self.rhsm_api_url = url.strip()
+
+        self.initialized = True
+
+    # -------------------------------------------------------------------------
+    def get_access_token(self):
+        """Trying to get an access token by the offline token from Red Hat SSO service."""
+        LOG.debug("Trying to get an access token from {!r} ...".format(self.redhat_sso_url))
+
+        data = {
+            'grant_type': 'refresh_token',
+            'client_id': 'rhsm-api',
+            'refresh_token': self.offline_token,
+        }
+
+        data_encoded = urlencode(data)
+        try:
+            response = self.post_data(self.redhat_sso_url, data=data)
+        except ApiError as e:
+            self.nagios_exit(self.status_unknown, str(e))
+
+        if 'access_token' in response:
+            self.access_token = response['access_token']
+            LOG.debug('Got an access_token: {!r}.'.format(self.access_token))
+            return
+
+        self.nagios_exit(self.status_unknown, 'Got no access_token.')
+
+    # -------------------------------------------------------------------------
+    def pre_run(self):
+        """Execute some actions before the main routine."""
+        if self.offline_token:
+            return
+
+        if self.verbose > 1:
+            LOG.debug('Reading Offline token file {!r} ...'.format(str(self.offline_token_file)))
+
+        if not self.offline_token_file.exists():
+            msg = 'Offline token file {!r} does not exists.'.format(str(self.offline_token_file))
+            self.nagios_exit(self.status_unknown, msg)
+            return
+
+        if not self.offline_token_file.is_file():
+            msg = 'Offline token file {!r} is not a regular file.'.format(
+                str(self.offline_token_file))
+            self.nagios_exit(self.status_unknown, msg)
+            return
+
+        if not os.access(self.offline_token_file, os.R_OK):
+            msg = 'Offline token file {!r} is not readable.'.format(str(self.offline_token_file))
+            self.nagios_exit(self.status_unknown, msg)
+            return
+
+        self.offline_token = self.offline_token_file.read_text(
+            encoding='utf-8', errors='surrogateescape').strip()
+
+        LOG.debug('Got offline token from file {!r}.'.format(str(self.offline_token_file)))
+
+    # -------------------------------------------------------------------------
+    def get_data(self, url, headers=None, may_simulate=False, content_type='application/json'):
+        """Perform a GET request."""
+        return self.perform_request(
+            url, 'GET', headers=headers, may_simulate=may_simulate,
+            content_type=content_type)
+
+    # -------------------------------------------------------------------------
+    def post_data(
+            self, url, data=None, headers=None, may_simulate=False,
+            content_type='application/x-www-form-urlencoded'):
+        """Perform a POST request."""
+        return self.perform_request(
+            url, 'POST', data=data, headers=headers, may_simulate=may_simulate,
+            content_type=content_type)
+
+    # -------------------------------------------------------------------------
+    def perform_request(
+            self, url, method='GET', data=None, headers=None, may_simulate=False,
+            content_type='application/json'):
+        """Perform the underlying API request."""
+        if headers is None:
+            headers = {}
+
+        if self.access_token:
+            headers['Authorization'] = 'Bearer {}'.format(self.access_token)
+
+        if self.verbose > 1:
+            LOG.debug('Request method: {!r}'.format(method))
+        if data and self.verbose > 1:
+            data_out = '{!r}'.format(data)
+            try:
+                data_out = json.loads(data)
+            except (ValueError, TypeError):
+                pass
+            else:
+                data_out = pp(data_out)
+            LOG.debug('Data:\n{}'.format(data_out))
+            #if self.verbose > 2:
+            #    LOG.debug('RAW data:\n{}'.format(data))
+
+        headers.update({'User-Agent': self.user_agent})
+        headers.update({'Content-Type': content_type})
+        if self.verbose > 1:
+            head_out = copy.copy(headers)
+            if 'Authorization' in head_out and self.verbose <= 4:
+                head_out['Authorization'] = 'Bearer ******'
+            LOG.debug('Headers:\n{}'.format(pp(head_out)))
+
+        if may_simulate and self.simulate:
+            LOG.debug('Simulation mode, Request will not be sent.')
+            return ''
+
+        try:
+
+            session = requests.Session()
+            response = session.request(
+                method, url, data=data, headers=headers, timeout=self.timeout)
+
+        except RequestException as e:
+            raise ApiError(str(e), url, e.request, e.response)
+
+        except (
+                socket.timeout, urllib3.exceptions.ConnectTimeoutError,
+                urllib3.exceptions.MaxRetryError,
+                requests.exceptions.ConnectTimeout) as e:
+            msg = 'Got a {c} on connecting to {h!r}: {e}.'.format(
+                c=e.__class__.__name__, h=url, e=e)
+            raise MonitoringPluginError(msg)
+
+        try:
+            self._eval_response(url, response)
+
+        except ValueError:
+            raise ApiError(response.status_code, 'Failed to parse the response', response.text)
+
+        if self.verbose > 4:
+            LOG.debug('RAW response: {!r}.'.format(response.text))
+        if not response.text:
+            return ''
+
+        json_response = response.json()
+        if self.verbose > 3:
+            LOG.debug('JSON response:\n{}'.format(pp(json_response)))
+
+        if 'location' in response.headers:
+            json_response['requestId'] = self._request_id(response.headers)
+
+        return json_response
+
+    # -------------------------------------------------------------------------
+    def _eval_response(self, url, response):
+
+        if response.ok:
+            return
+
+        err = response.json()
+        code = response.status_code
+        msg = err['error']
+        LOG.debug('Got an error response code {code}: {msg}'.format(code=code, msg=msg))
+        raise ApiError(code, msg, url)
+
+    # -------------------------------------------------------------------------
+    def get_systems(self):
+        """Trying to get a list of all systems."""
+        LOG.debug('Trying to get a list of all systems.')
+
+        url = self.rhsm_api_url + '/systems'
+        limit = 100
+        count = 0
+        offset = 0
+
+        while True:
+            options = f'limit={limit}&offset={offset}'
+            LOG.debug(f'Systems-Offset: {offset}')
+            try:
+                response = self.get_data(url + '?' + options)
+            except ApiError as e:
+                self.nagios_exit(self.status_unknown, str(e))
+            if self.verbose > 3:
+                LOG.debug('Got a list of systems:\n' + pp(response))
+            if 'body' in response:
+                for system in response['body']:
+                    self.systems.append(system)
+            if 'pagination' in response and 'count' in response['pagination']:
+                count = response['pagination']['count']
+                if count < limit:
+                    break
+                offset += limit
+            else:
+                break
+
+        LOG.debug('Retrieved {} systems from Ret Hat.'.format(len(self.systems)))
+        if self.verbose > 2:
+            LOG.debug('Got a list of all systems:\n' + pp(self.systems))
+
+    # -------------------------------------------------------------------------
+    def eval_systems(self):
+        """Evaluate subscription state of all systems."""
+        LOG.debug('Evaluate subscription state of all systems.')
+
+        nodes = {}
+        rhsm_states = {
+            'valid': 0,
+            'invalid': 0,
+            'unknown': 0,
+            'partial': 0,
+            'multiple': 0,
+            'entitled': 0,
+            'not_entitled': 0,
+        }
+        problem_nodes = {}
+
+        warn_states = ('unknown', 'partial')
+        crit_states = ('invalid', 'multiple')
+
+        self.status = self.status_ok
+        self.status_msg = 'All subscriptions are ok.'
+
+        self.add_perfdata('total', len(self.systems))
+
+        i = 0
+        for system in self.systems:
+            i += 1
+            if self.verbose > 0:
+                LOG.debug('Evaluating system:\n'  + pp(system))
+            hostname = system['name']
+            if hostname not in nodes:
+                nodes[hostname] = 1
+            else:
+                nodes[hostname] += 1
+
+            rhsm_states['entitled'] += 1
+            if 'entitlementStatus' in system:
+                e_status = system['entitlementStatus']
+                if e_status == '':
+                    e_status = 'not_entitled'
+            else:
+                e_status = 'unknown'
+
+            if e_status not in rhsm_states:
+                rhsm_states[e_status] = 0
+            rhsm_states[e_status] += 1
+
+            if e_status in crit_states:
+                self.status = self.status_critical
+            elif e_status in warn_states:
+                if self.status != self.status_critical:
+                    self.status = self.status_warning
+
+            if e_status in crit_states or e_status in warn_states:
+                problem_nodes[hostname] = f'{e_status} subscription'
+
+            if 'type' in system:
+                stype = system['type']
+                if stype not in rhsm_states:
+                    rhsm_states[stype] = 0
+                rhsm_states[stype] += 1
+
+        for hostname in nodes:
+            count = nodes[hostname]
+            if count > 1:
+                self.status_critical
+                rhsm_states['multiple'] += 1
+                if hostname in problem_nodes:
+                    problem_nodes[hostname] += 'and '
+                else:
+                    problem_nodes[hostname] = ''
+                problem_nodes[hostname] += f'{count} subscriptions'
+
+        for rhsm_status in rhsm_states:
+            threshold = None
+            warning = None
+            critical = None
+            cur_status = self.status_ok
+
+            if rhsm_status in crit_states:
+                threshold = MonitoringThreshold(critical=1)
+            elif rhsm_status in warn_states:
+                threshold = MonitoringThreshold(warning=1)
+
+            self.add_perfdata(rhsm_status, rhsm_states[rhsm_status], threshold=threshold)
+
+        if problem_nodes:
+            self.status_msg = 'There are subscriptions with problems.'
+            msgs = []
+            for hostname in sorted(problem_nodes.keys(), key=str.lower):
+                msgs.append(' * ' + hostname + ': ' + problem_nodes[hostname])
+            self.status_msg += '\n' + '\n'.join(msgs)
+
+    # -------------------------------------------------------------------------
+    def run(self):
+        """Execute the main actions of the application."""
+        LOG.debug("I'm walking, yes indeed, I'm walking....")
+
+        self.get_access_token()
+        self.get_systems()
+        self.eval_systems()
+
+
+# =============================================================================
+
+if __name__ == "__main__":
+    plugin = CheckRedhatSubscriptionsPlugin()
+    plugin()
+
+# =============================================================================
+
+# vim: tabstop=4 expandtab shiftwidth=4 softtabstop=4

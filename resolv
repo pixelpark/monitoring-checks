@@ -1,0 +1,340 @@
+#!/usr/bin/python3
+# -*- coding: utf-8 -*-
+#
+# Author: Frank Brehm <frank@brehm-online.com>
+#         Berlin, Germany, 2024
+# Date:   2024-08-16
+#
+# This module provides DNS resolving of given hostnames and/or addresses
+#
+from __future__ import print_function
+
+import argparse
+import copy
+import ipaddress
+import logging
+import os
+import pprint
+import re
+import shutil
+import socket
+import sys
+
+LOG = logging.getLogger(__name__)
+
+DEFAULT_TERMINAL_WIDTH = 99
+DEFAULT_TERMINAL_HEIGHT = 40
+
+__author__ = 'Frank Brehm <frank@brehm-online.com>'
+__copyright__ = '(C) 2024 by Frank Brehm, Berlin'
+__version__ = '0.1.0'
+
+
+# =============================================================================
+def pp(value, indent=4, width=None, depth=None):
+    """
+    Return a pretty print string of the given value.
+
+    @return: pretty print string
+    @rtype: str
+    """
+
+    if not width:
+        term_size = shutil.get_terminal_size((DEFAULT_TERMINAL_WIDTH, DEFAULT_TERMINAL_HEIGHT))
+        width = term_size.columns
+
+    pretty_printer = pprint.PrettyPrinter(
+        indent=indent, width=width, depth=depth)
+    return pretty_printer.pformat(value)
+
+
+# =============================================================================
+class ResolveApplication(object):
+
+    # -------------------------------------------------------------------------
+    @classmethod
+    def get_generic_appname(cls, appname=None):
+
+        if appname:
+            v = str(appname).strip()
+            if v:
+                return v
+        aname = sys.argv[0]
+        aname = re.sub(r'\.py$', '', aname, flags=re.IGNORECASE)
+        return os.path.basename(aname)
+
+    # -------------------------------------------------------------------------
+    def __init__(self):
+
+        self._appname = self.get_generic_appname()
+        self._version = __version__
+        self._verbose = 0
+        self._initialized = False
+
+        self.arg_parser = None
+        self.args = object()
+
+        self._description = "Resolving the given hostnames and/or addresses."
+
+        self.init_arg_parser()
+        self.post_init()
+        self.initialized = True
+
+    # -----------------------------------------------------------
+    @property
+    def appname(self):
+        """The name of the current running application."""
+        if hasattr(self, '_appname'):
+            return self._appname
+        return os.path.basename(sys.argv[0])
+
+    # -----------------------------------------------------------
+    @property
+    def version(self):
+        """The version string of the current object or application."""
+        return getattr(self, '_version', __version__)
+
+    # -----------------------------------------------------------
+    @property
+    def verbose(self):
+        """The verbosity level."""
+        return getattr(self, '_verbose', 0)
+
+    @verbose.setter
+    def verbose(self, value):
+        v = int(value)
+        if v >= 0:
+            self._verbose = v
+        else:
+            LOG.warning("Wrong verbose level {!r}, must be >= 0".format(value))
+
+    # -----------------------------------------------------------
+    @property
+    def initialized(self):
+        """The initialisation of this object is complete."""
+        return getattr(self, '_initialized', False)
+
+    @initialized.setter
+    def initialized(self, value):
+        self._initialized = bool(value)
+
+    # -----------------------------------------------------------
+    @property
+    def description(self):
+        """Get a short text describing the application."""
+        return self._description
+
+    # -------------------------------------------------------------------------
+    def __str__(self):
+        """
+        Typecasting function for translating object structure
+        into a string
+
+        @return: structure as string
+        @rtype:  str
+        """
+
+        return pp(self.as_dict())
+
+    # -------------------------------------------------------------------------
+    def as_dict(self):
+        """
+        Transforms the elements of the object into a dict
+
+        @param short: don't include local properties in resulting dict.
+        @type short: bool
+
+        @return: structure as dict
+        @rtype:  dict
+        """
+        res = {}
+        for key in self.__dict__:
+            if key.startswith('_') and not key.startswith('__'):
+                continue
+            val = self.__dict__[key]
+            res[key] = val
+
+        res['__class_name__'] = self.__class__.__name__
+
+        res['appname'] = self.appname
+        res['arg_parser'] = self.arg_parser
+        res['args'] = copy.copy(self.args.__dict__)
+        res['description'] = self.verbose
+        res['initialized'] = self.initialized
+        res['verbose'] = self.verbose
+        res['version'] = self.version
+
+        return res
+
+    # -------------------------------------------------------------------------
+    def post_init(self):
+
+        self.perform_arg_parser()
+        self.init_logging()
+
+    # -------------------------------------------------------------------------
+    def init_arg_parser(self):
+        """
+        Local called method to initiate the argument parser.
+
+        @raise PBApplicationError: on some errors
+
+        """
+
+        self.arg_parser = argparse.ArgumentParser(
+            prog=self.appname,
+            description=self.description,
+            add_help=False,
+        )
+
+        self.arg_parser.add_argument(
+            'tokens', nargs='+', help='The hostnames and/or addresse, you want to resolv.',
+        )
+
+        general_group = self.arg_parser.add_argument_group('General_options')
+
+        general_group.add_argument(
+            "-v", "--verbose", action="count", dest='verbose',
+            help='Increase the verbosity level',
+        )
+
+        general_group.add_argument(
+            "-h", "--help", action='help', dest='help',
+            help='Show this help message and exit.'
+        )
+
+        general_group.add_argument(
+            "--usage", action='store_true', dest='usage',
+            help="Display brief usage message and exit."
+        )
+
+        v_msg = "Version of %(prog)s: {}".format(self.version)
+        general_group.add_argument(
+            "-V", '--version', action='version', version=v_msg,
+            help="Show program's version number and exit."
+        )
+
+    # -------------------------------------------------------------------------
+    def perform_arg_parser(self):
+
+        self.args = self.arg_parser.parse_args()
+
+        if self.args.usage:
+            self.arg_parser.print_usage(sys.stdout)
+            self.exit(0)
+
+        if self.args.verbose is not None and self.args.verbose > self.verbose:
+            self.verbose = self.args.verbose
+
+    # -------------------------------------------------------------------------
+    def init_logging(self):
+        """
+        Initialize the logger object.
+        It creates a colored loghandler with all output to STDERR.
+        Maybe overridden in descendant classes.
+
+        @return: None
+        """
+
+        log_level = logging.INFO
+        if self.verbose:
+            log_level = logging.DEBUG
+
+        root_logger = logging.getLogger()
+        root_logger.setLevel(log_level)
+
+        # create formatter
+        format_str = ''
+        if self.verbose:
+            format_str = '[%(asctime)s]: '
+        format_str += self.appname + ': '
+        if self.verbose:
+            if self.verbose > 1:
+                format_str += '%(name)s(%(lineno)d) %(funcName)s() '
+            else:
+                format_str += '%(name)s '
+        format_str += '%(levelname)s - %(message)s'
+        formatter = logging.Formatter(format_str)
+
+        # create log handler for console output
+        lh_console = logging.StreamHandler(sys.stderr)
+        lh_console.setLevel(log_level)
+        lh_console.setFormatter(formatter)
+
+        root_logger.addHandler(lh_console)
+
+        return
+
+    # -------------------------------------------------------------------------
+    def run(self):
+        """
+        Execute the main actions of the application.
+
+        The visible start point of this object.
+
+        @return: None
+        """
+        for token in self.args.tokens:
+            self.resolv_token(token)
+
+    # -------------------------------------------------------------------------
+    def __call__(self):
+        return self.run()
+
+    # -------------------------------------------------------------------------
+    def resolv_token(self, token):
+
+        try:
+            address = ipaddress.ip_address(token)
+        except ValueError:
+            self.resolv_name(token)
+        else:
+            self.resolv_address(str(address))
+
+    # -------------------------------------------------------------------------
+    def resolv_name(self, name):
+
+        addresses = []
+        flags = socket.AI_CANONNAME
+        fqdn = socket.getfqdn(name)
+
+        print(' * {}:'.format(name))
+        try:
+            addr_infos = socket.getaddrinfo(name, None, flags=flags)
+            for addr_info in addr_infos:
+                addr = str(ipaddress.ip_address(addr_info[4][0]))
+                # canonname = addr_info[3]
+                if addr not in addresses:
+                    addresses.append(addr)
+
+            for addr in addresses:
+                print('   - {}'.format(addr))
+
+        except socket.gaierror as e:
+            print('   - Name {n!r} could not be resolved: {e}.'.format(n=name, e=e))
+
+    # -------------------------------------------------------------------------
+    def resolv_address(self, address):
+
+        print(' * {}:'.format(address))
+        sock_addr = (address, 443)
+
+        try:
+            sock_info = socket.getnameinfo(sock_addr, socket.NI_NAMEREQD)
+            print('   - {}'.format(sock_info[0]))
+        except socket.gaierror as e:
+            print('   - Address {a!r} could not be resolved: {e}.'.format(a=address, e=e))
+
+
+# =============================================================================
+
+if __name__ == "__main__":
+    app = ResolveApplication()
+    if app.verbose > 2:
+        print('{c}-Object:\n{a}'.format(c=app.__class__.__name__, a=app), file=sys.stderr)
+
+    app()
+
+# =============================================================================
+
+# vim: tabstop=4 expandtab shiftwidth=4 softtabstop=4
