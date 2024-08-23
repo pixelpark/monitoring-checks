@@ -48,7 +48,7 @@ DEFAULT_TERMINAL_HEIGHT = 40
 
 __author__ = 'Frank Brehm <frank@brehm-online.com>'
 __copyright__ = '(C) 2023 by Frank Brehm, Berlin'
-__version__ = '0.5.2'
+__version__ = '0.5.3'
 
 
 # =============================================================================
@@ -662,7 +662,7 @@ class MonitoringRange(MonitoringObject):
 
         # strip out any whitespace
         rstr = self.re_ws.sub('', range_str)
-        LOG.debug("Parsing given range %r ...", rstr)
+        # LOG.debug("Parsing given range %r ...", rstr)
 
         self._start = None
         self._end = None
@@ -673,12 +673,12 @@ class MonitoringRange(MonitoringObject):
         if not match:
             raise InvalidRangeError(range_str)
 
-        LOG.debug("Parsing range with regex %r ...", self.match_range)
+        # LOG.debug("Parsing range with regex %r ...", self.match_range)
         match = self.re_range.search(rstr)
         if not match:
             raise InvalidRangeError(range_str)
 
-        LOG.debug("Found range parts: %r.", match.groups())
+        # LOG.debug("Found range parts: %r.", match.groups())
         invert = match.group(1)
         start = match.group(2)
         end = match.group(3)
@@ -703,11 +703,11 @@ class MonitoringRange(MonitoringObject):
                     start = int(start)
                 valid = True
 
-        if start is None:
-            if start_should_infinity:
-                LOG.debug("The start is None, but should be infinity.")
-            else:
-                LOG.debug("The start is None, but should be NOT infinity.")
+        # if start is None:
+        #     if start_should_infinity:
+        #         LOG.debug("The start is None, but should be infinity.")
+        #     else:
+        #         LOG.debug("The start is None, but should be NOT infinity.")
 
         if end is not None:
             if self.re_dot.search(end):

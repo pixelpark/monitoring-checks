@@ -30,10 +30,11 @@ import urllib3
 
 from monitoring import LogFileOptionAction
 from monitoring import MonitoringPlugin
+from monitoring import MonitoringThreshold
 from monitoring import ApiError
 from monitoring import pp
 
-__version__ = '0.3.0'
+__version__ = '0.4.0'
 
 LOG = logging.getLogger(__name__)
 
@@ -344,12 +345,107 @@ class CheckRedhatSubscriptionsPlugin(MonitoringPlugin):
             LOG.debug('Got a list of all systems:\n' + pp(self.systems))
 
     # -------------------------------------------------------------------------
+    def eval_systems(self):
+        """Evaluate subscription state of all systems."""
+        LOG.debug('Evaluate subscription state of all systems.')
+
+        nodes = {}
+        rhsm_states = {
+            'valid': 0,
+            'invalid': 0,
+            'unknown': 0,
+            'partial': 0,
+            'multiple': 0,
+            'entitled': 0,
+            'not_entitled': 0,
+        }
+        problem_nodes = {}
+
+        warn_states = ('unknown', 'partial')
+        crit_states = ('invalid', 'multiple')
+
+        self.status = self.status_ok
+        self.status_msg = 'All subscriptions are ok.'
+
+        self.add_perfdata('total', len(self.systems))
+
+        i = 0
+        for system in self.systems:
+            i += 1
+            if self.verbose > 0:
+                LOG.debug('Evaluating system:\n'  + pp(system))
+            hostname = system['name']
+            if hostname not in nodes:
+                nodes[hostname] = 1
+            else:
+                nodes[hostname] += 1
+
+            rhsm_states['entitled'] += 1
+            if 'entitlementStatus' in system:
+                e_status = system['entitlementStatus']
+                if e_status == '':
+                    e_status = 'not_entitled'
+            else:
+                e_status = 'unknown'
+
+            if e_status not in rhsm_states:
+                rhsm_states[e_status] = 0
+            rhsm_states[e_status] += 1
+
+            if e_status in crit_states:
+                self.status = self.status_critical
+            elif e_status in warn_states:
+                if self.status != self.status_critical:
+                    self.status = self.status_warning
+
+            if e_status in crit_states or e_status in warn_states:
+                problem_nodes[hostname] = f'{e_status} subscription'
+
+            if 'type' in system:
+                stype = system['type']
+                if stype not in rhsm_states:
+                    rhsm_states[stype] = 0
+                rhsm_states[stype] += 1
+
+        for hostname in nodes:
+            count = nodes[hostname]
+            if count > 1:
+                self.status_critical
+                rhsm_states['multiple'] += 1
+                if hostname in problem_nodes:
+                    problem_nodes[hostname] += 'and '
+                else:
+                    problem_nodes[hostname] = ''
+                problem_nodes[hostname] += f'{count} subscriptions'
+
+        for rhsm_status in rhsm_states:
+            threshold = None
+            warning = None
+            critical = None
+            cur_status = self.status_ok
+
+            if rhsm_status in crit_states:
+                threshold = MonitoringThreshold(critical=1)
+            elif rhsm_status in warn_states:
+                threshold = MonitoringThreshold(warning=1)
+
+            self.add_perfdata(rhsm_status, rhsm_states[rhsm_status], threshold=threshold)
+
+        if problem_nodes:
+            self.status_msg = 'There are subscriptions with problems: '
+            msgs = []
+            for hostname in problem_nodes:
+                msgs.append(hostname + ' ' + problem_nodes[hostname])
+            self.status_msg += ', '.join(msgs)
+
+    # -------------------------------------------------------------------------
     def run(self):
         """Execute the main actions of the application."""
         LOG.debug("I'm walking, yes indeed, I'm walking....")
 
         self.get_access_token()
         self.get_systems()
+        self.eval_systems()
 
 
 # =============================================================================
