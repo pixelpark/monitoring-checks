@@ -48,7 +48,7 @@ DEFAULT_TERMINAL_HEIGHT = 40
 
 __author__ = 'Frank Brehm <frank@brehm-online.com>'
 __copyright__ = '(C) 2023 by Frank Brehm, Berlin'
-__version__ = '0.5.3'
+__version__ = '0.6.0'
 
 
 # =============================================================================
@@ -1791,7 +1791,7 @@ class MonitoringPlugin(MonitoringObject):
             message = self.status_msg
         else:
             if isinstance(message, list) or isinstance(message, tuple):
-                message = ' '.join(lambda x: str(x).strip(), message)
+                message = '\n'.join(lambda x: str(x).strip(), message)
             else:
                 message = str(message).strip()
 
@@ -1806,11 +1806,15 @@ class MonitoringPlugin(MonitoringObject):
                 output = "[no message]"
         else:
             output = self.appname + " " + code
+            lines = []
             if message:
-                output += " - " + message
+                lines = message.splitlines()
+                output += " - " + lines[0]
             pdata = self.all_perfoutput()
             if pdata:
                 output += " | " + pdata
+            if len(lines) > 1:
+                output += '\n' + '\n'.join(lines[1:])
 
         print(output)
         sys.exit(status)
