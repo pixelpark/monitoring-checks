@@ -32,7 +32,7 @@ def domain_list
   result.lines.map(&:chomp)
 rescue StandardError => e
   puts "#{STATES[2]} - errors on collecting domain list from sssd\n#{e.message}"
-  exit 3
+  exit 2
 end
 
 def domain_status(domain)
@@ -45,6 +45,13 @@ def domain_status(domain)
   # - prd-ds.pixelpark.com
   #
   domain_status = %x(#{SUDO} /sbin/sssctl domain-status #{domain} 2>&1)
+  if $CHILD_STATUS.exitstatus == 1 && domain_status == "Unable to get online status\n"
+    return {
+      'Online status' => domain_status.chomp,
+      'Active servers' => [],
+      'Discovered LDAP servers' => []
+    }
+  end
   raise domain_status unless $CHILD_STATUS.success?
 
   domain_status.split(/\n\n/m).to_h do |block|
@@ -67,7 +74,7 @@ def domain_status(domain)
   end
 rescue StandardError => e
   puts "#{STATES[2]} - errors on collecting domain status of '#{domain}'\nMessage: #{e.message}\nBacktrace: #{e.backtrace}"
-  exit 3
+  exit 2
 end
 
 config_check
@@ -75,7 +82,7 @@ domain_status = domain_list.to_h do |domain|
   [domain, domain_status(domain)]
 end
 
-offline_domains = domain_status.reject { |_domain, values| values['Online status'].casecmp('Online').zero? }
+offline_domains = domain_status.reject { |_domain, values| values['Online status'].casecmp?('Online') }
 no_active_servers = domain_status.select { |_domain, values| values['Active servers'].empty? }
 no_discovered_servers = domain_status.select { |_domain, values| values['Discovered LDAP servers'].empty? }
 
