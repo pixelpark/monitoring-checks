@@ -415,7 +415,7 @@ class CheckRedhatSubscriptionsPlugin(MonitoringPlugin):
                     self.status = self.status_warning
                 rhsm_states['multiple'] += 1
                 if hostname in problem_nodes:
-                    problem_nodes[hostname] += 'and '
+                    problem_nodes[hostname] += ' and '
                 else:
                     problem_nodes[hostname] = ''
                 problem_nodes[hostname] += f'{count} subscriptions'
@@ -439,7 +439,7 @@ class CheckRedhatSubscriptionsPlugin(MonitoringPlugin):
             self.status_msg = 'There are subscriptions with problems.'
             msgs = []
             for hostname in sorted(problem_nodes.keys(), key=str.lower):
-                msgs.append(' * ' + hostname + ': ' + problem_nodes[hostname])
+                msgs.append('* ' + hostname + ': ' + problem_nodes[hostname])
             self.status_msg += '\n' + '\n'.join(msgs)
 
     # -------------------------------------------------------------------------
