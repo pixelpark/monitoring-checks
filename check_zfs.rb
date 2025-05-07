@@ -194,8 +194,8 @@ def parse_status(input)
                   when 'config'
                     header = value[0].split.map(&:strip)
                     value[1..].map do |line|
-                      line.split.map.with_index do |value, index|
-                        [header[index], value.strip]
+                      line.split.map.with_index do |val, index|
+                        [header[index], val.strip]
                       end.to_h
                     end
                   else
