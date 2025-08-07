@@ -110,7 +110,9 @@ perfdata = [
 ].join(' ')
 
 puts "#{output} | #{perfdata}"
+# rubocop:disable Style/RedundantParentheses
 puts (domain_status.map do |domain, values|
   "domain '#{domain}':\n\t#{values.map { |key, value| "#{key}: #{value}" }.join("\n\t")}"
 end).join("\n\n")
+# rubocop:enable Style/RedundantParentheses
 exit status
