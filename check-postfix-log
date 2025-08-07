@@ -22,7 +22,7 @@ from monitoring import pp
 from pygtail import Pygtail
 from postfix_logsums import PostfixLogParser
 
-__version__ = '0.3.7'
+__version__ = '0.3.8'
 
 LOG = logging.getLogger(__name__)
 
@@ -363,13 +363,13 @@ class CheckPostfixLogPlugin(MonitoringPlugin):
             if fatals:
                 what.append('fatal')
 
-            apend = 'Found ' + ' and '.join(what) + ' messages.'
+            append_txt = 'Found ' + ' and '.join(what) + ' messages.'
             if self.status == self.status_ok:
-                self.status_msg = append
+                self.status_msg = append_txt
             elif self.status_msg:
-                self.status_msg += ' ' + append
+                self.status_msg += ' ' + append_txt
             else:
-                self.status_msg = append
+                self.status_msg = append_txt
 
     # -------------------------------------------------------------------------
     def exit(self, status=None, message=None, no_status_line=False):
