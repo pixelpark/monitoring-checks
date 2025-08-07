@@ -24,7 +24,10 @@ def api_call(query, opt = {})
     if opt.key?(:ca)
       cert_store = OpenSSL::X509::Store.new
       cert_store.add_file(opt[:ca])
-      cert_store.add_crl(OpenSSL::X509::CRL.new(File.read(opt[:crl]))) if opt.key?(:crl)
+      if opt.key?(:crl)
+        cert_store.add_file(opt[:crl])
+        cert_store.flags = OpenSSL::X509::V_FLAG_CRL_CHECK | OpenSSL::X509::V_FLAG_CRL_CHECK_ALL
+      end
       http.cert_store = cert_store
     end
     if opt.key?(:cert) && opt.key?(:key)

@@ -30,7 +30,7 @@ idle_user = []
 OptionParser.new do |opts|
   opts.on('-w WARNING')    { |warning|  @options[:warning]  = warning  }
   opts.on('-c CRITICAL')   { |critical| @options[:critical] = critical }
-  opts.on('-e', TrueClass) { |extended| @options[:extended] = extended.nil? ? true : extended }
+  opts.on('-e', TrueClass) { |extended| @options[:extended] = extended.nil? || extended }
 end.parse!
 
 warn = @options[:warning].to_i
