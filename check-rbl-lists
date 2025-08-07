@@ -30,7 +30,7 @@ from pathlib import Path
 
 import concurrent.futures
 
-__version__ = '0.3.0'
+__version__ = '0.4.0'
 __author__ = 'Frank Brehm <frank@brehm-online.com>'
 
 MAX_TIMEOUT = 30
@@ -119,6 +119,34 @@ class RequestTimeoutError(MonitoringError, IOError):
         strerror += '.'
 
         super(RequestTimeoutError, self).__init__(errno.ETIMEDOUT, strerror)
+
+
+# =============================================================================
+class ListFileOptionAction(argparse.Action):
+    """An argparse action for a RBL list file."""
+
+    # -------------------------------------------------------------------------
+    def __init__(self, option_strings, *args, **kwargs):
+        """Initialise a ListFileOptionAction object."""
+        super(ListFileOptionAction, self).__init__(
+            option_strings=option_strings, *args, **kwargs)
+
+    # -------------------------------------------------------------------------
+    def __call__(self, parser, namespace, values, option_string=None):
+        """Parse the configuration file option."""
+        if values is None:
+            setattr(namespace, self.dest, None)
+            return
+
+        path = Path(values)
+        if not path.exists():
+            msg = 'File {!r} does not exists.'.format(values)
+            raise argparse.ArgumentError(self, msg)
+        if not path.is_file():
+            msg = 'File {!r} is not a regular file.'.format(values)
+            raise argparse.ArgumentError(self, msg)
+
+        setattr(namespace, self.dest, path.resolve())
 
 
 # =============================================================================
@@ -252,6 +280,8 @@ class CheckRblListsApp(object):
     Domain Name System blocklist.
     """)
 
+    default_listfile = Path(__file__).parent / 'rbl-serverlist.txt'
+
     # -------------------------------------------------------------------------
     @classmethod
     def get_generic_appname(cls, appname=None):
@@ -277,6 +307,8 @@ class CheckRblListsApp(object):
         self.timeout = DEFAULT_TIMEOUT
         self.limit_warn = DEFAULT_LIMIT_WARN
         self.limit_crit = DEFAULT_LIMIT_CRIT
+
+        self.listfile = self.default_listfile
 
         self.blacklists = []
         self.records2check = []
@@ -352,6 +384,14 @@ class CheckRblListsApp(object):
         )
 
         self.arg_parser.add_argument(
+            '-L', '--listfile', metavar="FILE", dest='listfile',
+            action=ListFileOptionAction,
+            help=(
+                'A file containing a list of RBLs, which shoud be checked. Default: '
+                '{!r}.').format(str(self.default_listfile)),
+        )
+
+        self.arg_parser.add_argument(
             "-h", "--help", action='help', dest='help',
             help='Show this help message and exit.'
         )
@@ -391,15 +431,17 @@ class CheckRblListsApp(object):
         if self.args.parallel:
             self.parallel = self.args.parallel
 
+        if self.args.listfile:
+            self.listfile = self.args.listfile
+
     # -------------------------------------------------------------------------
     def read_rbl_server_list(self):
         """Reading the file with the list of the RBL servers."""
-        listfile = Path(__file__).parent / 'rbl-serverlist.txt'
-        if not listfile.exists():
-            raise RuntimeError('File {!r} not found.'.format(str(listfile)))
+        if not self.listfile.exists():
+            raise RuntimeError('File {!r} not found.'.format(str(self.listfile)))
 
-        LOG.debug('Reading {!r} ...'.format(str(listfile)))
-        with listfile.open('rt', encoding='utf-8') as fh:
+        LOG.debug('Reading {!r} ...'.format(str(self.listfile)))
+        with self.listfile.open('rt', encoding='utf-8') as fh:
             for line in fh.read().splitlines():
                 line = line.strip()
                 if line == '' or line.startswith('#'):
