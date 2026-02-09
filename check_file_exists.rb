@@ -51,7 +51,7 @@ end.parse!
 
 files = Dir.glob(options[:file_path])
 
-exitstate = if options[:crit] < options[:warn] || options[:crit] == 0
+exitstate = if options[:crit] < options[:warn] || options[:crit].zero?
               if files.count <= options[:crit]
                 2
               elsif files.count <= options[:warn]
@@ -59,14 +59,12 @@ exitstate = if options[:crit] < options[:warn] || options[:crit] == 0
               else
                 0
               end
+            elsif files.count >= options[:crit]
+              2
+            elsif files.count >= options[:warn]
+              1
             else
-              if files.count >= options[:crit]
-                2
-              elsif files.count >= options[:warn]
-                1
-              else
-                0
-              end
+              0
             end
 result = if files.empty?
            'no matching files found'
