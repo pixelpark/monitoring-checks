@@ -39,10 +39,10 @@ def domain_status(domain)
   # Online status: Online
   #
   # Active servers:
-  # LDAP: prd-ds.pixelpark.com
+  # LDAP: ldap.example.com
   #
   # Discovered LDAP servers:
-  # - prd-ds.pixelpark.com
+  # - ldap.example.com
   #
   domain_status = %x(#{SUDO} /sbin/sssctl domain-status #{domain} 2>&1)
   if $CHILD_STATUS.exitstatus == 1 && domain_status == "Unable to get online status\n"

@@ -10,7 +10,7 @@ AllCops:
   <% `git status --ignored --porcelain`.lines.grep(/^!! /).each do |path| %>
     - <%= path.sub(/^!! /, '').sub(/\/$/, '/**/*') %>
   <% end %>
-  TargetRubyVersion: '2.7'
+  TargetRubyVersion: '3.2'
   NewCops: enable
 
 ## start customized cops
