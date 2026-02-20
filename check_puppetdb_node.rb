@@ -4,7 +4,7 @@
 # Date:   2022-09-22
 
 require 'json'
-require 'net/http'
+require 'net/https'
 require 'optparse'
 require 'uri'
 require 'time'
@@ -18,9 +18,6 @@ def api_call(query, opt = {})
   http         = Net::HTTP.new(uri.host, uri.port)
   http.use_ssl = opt.key?(:ssl)
   if http.use_ssl?
-    require 'openssl/x509'
-    require 'openssl/pkey'
-
     if opt.key?(:ca)
       cert_store = OpenSSL::X509::Store.new
       cert_store.add_file(opt[:ca])

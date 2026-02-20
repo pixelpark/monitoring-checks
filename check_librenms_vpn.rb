@@ -4,7 +4,7 @@
 # Date:   2020-07-29
 
 require 'json'
-require 'net/http'
+require 'net/https'
 require 'optparse'
 require 'uri'
 

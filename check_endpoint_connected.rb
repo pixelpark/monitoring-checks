@@ -3,7 +3,6 @@
 # Author: Robert Waffen <rw@betadots.de>
 # Date:   2022-06-20
 
-require 'net/http'
 require 'net/https'
 require 'uri'
 require 'json'
