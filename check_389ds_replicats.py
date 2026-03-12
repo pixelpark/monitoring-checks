@@ -3,7 +3,7 @@
 #
 # Author: Frank Brehm <frank@brehm-online.com
 #         Berlin, Germany, 2021
-# Date:   2021-02-18
+# Date:   2026-03-12
 # By an idea of: Emmanuel BUU <emmanuel.buu@ives.fr> (c) IVèS
 #                http://www.ives.fr/
 #
@@ -630,7 +630,7 @@ class Check389dsReplicatsApp(object):
 
         results = []
         msgs = []
-        total_status = 0
+        total_status = []
 
         re_status = re.compile(r'^[^\(]*\((-?\d+)\)')
 
@@ -661,8 +661,10 @@ class Check389dsReplicatsApp(object):
             LOG.debug("Found status code {}".format(statuscode))
             e['status_code'] = statuscode
 
-            if statuscode:
-                total_status = 2
+            if statuscode == 0:
+                total_status.append(0)
+            else:
+                total_status.append(2)
 
             results.append(e)
 
@@ -671,8 +673,8 @@ class Check389dsReplicatsApp(object):
                     host=e['replica_host'], lo=dt, st=e['last_update_status'])
             msgs.append(msg)
 
-        self.status_msg = '\n'.join(msgs)
-        self.status_code = total_status
+        self.status_msg = '\n'.join(msgs) or 'No Replication information has been discovered'
+        self.status_code = max(total_status or [3])
 
         if self.verbose > 1:
             LOG.debug("Result of searching:\n{}".format(pp(results)))
