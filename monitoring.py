@@ -1,28 +1,30 @@
 #!/usr/bin/python3
 # -*- coding: utf-8 -*-
-#
-# Author: Frank Brehm <frank@brehm-online.com
-#         Berlin, Germany, 2023
-# Date:   2023-02-16
-#
-# This module provides a basic monitoring check class
-#
+"""
+@summary: This module provides a basic monitoring check class.
+
+@author:    Frank Brehm
+@contact:   frank@brehm-online.com
+
+@copyright: © 2023 - 2026 Frank Brehm, Berlin, Germany
+@license: GPL3+
+@date:      2026-03-13
+
+"""
 from __future__ import print_function
 
-import sys
-import os
-import logging
 import argparse
-import shutil
-import traceback
-import datetime
-import re
-import pprint
 import copy
-
-from pathlib import Path
-
+import datetime
+import logging
+import os
+import pprint
+import re
+import shutil
+import sys
+import traceback
 from numbers import Number
+from pathlib import Path
 
 try:
     from collections.abc import Sequence
@@ -31,14 +33,16 @@ except ImportError:
 
 if sys.version_info[0] != 3:
     print("This script is intended to use with Python3.", file=sys.stderr)
-    print("You are using Python: {0}.{1}.{2}-{3}-{4}.\n".format(
-        *sys.version_info), file=sys.stderr)
+    print(
+        "You are using Python: {0}.{1}.{2}-{3}-{4}.\n".format(*sys.version_info), file=sys.stderr
+    )
     sys.exit(1)
 
 if sys.version_info[1] < 6:
     print("A minimal Python version of 3.6 is necessary to execute this script.", file=sys.stderr)
-    print("You are using Python: {0}.{1}.{2}-{3}-{4}.\n".format(
-        *sys.version_info), file=sys.stderr)
+    print(
+        "You are using Python: {0}.{1}.{2}-{3}-{4}.\n".format(*sys.version_info), file=sys.stderr
+    )
     sys.exit(1)
 
 LOG = logging.getLogger(__name__)
@@ -46,9 +50,9 @@ LOG = logging.getLogger(__name__)
 DEFAULT_TERMINAL_WIDTH = 99
 DEFAULT_TERMINAL_HEIGHT = 40
 
-__author__ = 'Frank Brehm <frank@brehm-online.com>'
-__copyright__ = '(C) 2023 by Frank Brehm, Berlin'
-__version__ = '0.6.0'
+__author__ = "Frank Brehm <frank@brehm-online.com>"
+__copyright__ = "(C) 2023 by Frank Brehm, Berlin"
+__version__ = "0.7.0"
 
 
 # =============================================================================
@@ -59,18 +63,16 @@ def pp(value, indent=4, width=None, depth=None):
     @return: pretty print string
     @rtype: str
     """
-
     if not width:
         term_size = shutil.get_terminal_size((DEFAULT_TERMINAL_WIDTH, DEFAULT_TERMINAL_HEIGHT))
         width = term_size.columns
 
-    pretty_printer = pprint.PrettyPrinter(
-        indent=indent, width=width, depth=depth)
+    pretty_printer = pprint.PrettyPrinter(indent=indent, width=width, depth=depth)
     return pretty_printer.pformat(value)
 
 
 # =============================================================================
-def to_unicode(obj, encoding='utf-8'):
+def to_unicode(obj, encoding="utf-8"):
     """Convert given value to unicode."""
     do_decode = False
     if isinstance(obj, (bytes, bytearray)):
@@ -83,7 +85,7 @@ def to_unicode(obj, encoding='utf-8'):
 
 
 # =============================================================================
-def encode_or_bust(obj, encoding='utf-8'):
+def encode_or_bust(obj, encoding="utf-8"):
     """Convert given value to a byte string withe the given encoding."""
     do_encode = False
     if isinstance(obj, str):
@@ -98,17 +100,17 @@ def encode_or_bust(obj, encoding='utf-8'):
 # =============================================================================
 def to_utf8(obj):
     """Convert given value to a utf-8 encoded byte string."""
-    return encode_or_bust(obj, 'utf-8')
+    return encode_or_bust(obj, "utf-8")
 
 
 # =============================================================================
-def to_bytes(obj, encoding='utf-8'):
+def to_bytes(obj, encoding="utf-8"):
     """Do the same as encode_or_bust()."""
     return encode_or_bust(obj, encoding)
 
 
 # =============================================================================
-def to_str(obj, encoding='utf-8'):
+def to_str(obj, encoding="utf-8"):
     """Transform he given string-like object into the str-type.
 
     This will be done according to the current Python version.
@@ -140,8 +142,7 @@ class DirectoryOptionAction(argparse.Action):
         if self.writeable:
             self.must_exists = True
 
-        super(DirectoryOptionAction, self).__init__(
-            option_strings=option_strings, *args, **kwargs)
+        super(DirectoryOptionAction, self).__init__(option_strings=option_strings, *args, **kwargs)
 
     # -------------------------------------------------------------------------
     def __call__(self, parser, namespace, given_path, option_string=None):
@@ -181,8 +182,7 @@ class LogFileOptionAction(argparse.Action):
         """Initialise a LogFileOptionAction object."""
         self.must_exists = bool(must_exists)
         self.writeable = bool(writeable)
-        super(LogFileOptionAction, self).__init__(
-            option_strings=option_strings, *args, **kwargs)
+        super(LogFileOptionAction, self).__init__(option_strings=option_strings, *args, **kwargs)
 
     # -------------------------------------------------------------------------
     def __call__(self, parser, namespace, values, option_string=None):
@@ -214,7 +214,7 @@ class LogFileOptionAction(argparse.Action):
             if not os.access(values, os.R_OK):
                 msg = "File {!r} is not readable.".format(values)
                 raise argparse.ArgumentError(self, msg)
-            if self.writeable and not os.access(value, os.W_OK):
+            if self.writeable and not os.access(str(path), os.W_OK):
                 msg = "The given file {!r} is not writeable.".format(values)
                 raise argparse.ArgumentError(self, msg)
         elif self.must_exists:
@@ -226,15 +226,14 @@ class LogFileOptionAction(argparse.Action):
 
 # =============================================================================
 class MonitoringException(Exception):
+    """Base class for all exception classes and object, raised in this module."""
 
     pass
 
 
 # =============================================================================
 class MonitoringPerformanceError(MonitoringException):
-    """
-    Base class for all exception classes and object, raised in this module.
-    """
+    """Exception class for things happend in class MonitoringPerformance."""
 
     pass
 
@@ -242,57 +241,47 @@ class MonitoringPerformanceError(MonitoringException):
 # =============================================================================
 class MonitoringRangeError(MonitoringException):
     """Base exception class for all exceptions in this module."""
+
     pass
 
 
 # =============================================================================
 class InvalidRangeError(MonitoringRangeError):
-    """
-    A special exception, which is raised, if an invalid range string was found.
-    """
+    """A special exception, which is raised, if an invalid range string was found."""
 
     # -------------------------------------------------------------------------
     def __init__(self, wrong_range):
         """
-        Constructor.
+        Initialize the InvalidRangeError.
 
         @param wrong_range: the wrong range, whiche lead to this exception.
         @type wrong_range: str
-
         """
-
         self.wrong_range = wrong_range
 
     # -------------------------------------------------------------------------
     def __str__(self):
-        """Typecasting into a string for error output."""
-
-        return "Wrong range %r." % (self.wrong_range)
+        """Typecast into a string for error output."""
+        return f"Wrong range {self.wrong_range!r}"
 
 
 # =============================================================================
 class InvalidRangeValueError(MonitoringRangeError):
-    """
-    A special exception, which is raised, if an invalid value should be checked
-    against the current range object.
-    """
+    """An exception, if an invalid value should be checked against the current range object."""
 
     # -------------------------------------------------------------------------
     def __init__(self, value):
         """
-        Constructor.
+        Initialize the InvalidRangeValueError.
 
         @param value: the wrong value, whiche lead to this exception.
         @type value: object
-
         """
-
         self.value = value
 
     # -------------------------------------------------------------------------
     def __str__(self):
-        """Typecasting into a string for error output."""
-
+        """Typecast into a string for error output."""
         return "Wrong value %r to check against a range." % (self.value)
 
 
@@ -318,53 +307,44 @@ class ApiError(MonitoringPluginError):
     def __str__(self):
         """Typecast into a string."""
         if self.uri:
-            msg = 'Got a {code} error code from {uri!r}: {msg}'.format(
-                code=self.code, uri=self.uri, msg=self.msg)
+            msg = f"Got a {self.code} error code from {self.uri!r}: {self.msg}"
         else:
-            msg = 'Got a {code} error code: {msg}'.format(code=self.code, msg=self.msg)
+            msg = f"Got a {self.code} error code: {self.msg}"
 
         return msg
 
 
 # =============================================================================
 class FunctionNotImplementedError(MonitoringPluginError, NotImplementedError):
-    """
-    Error class for not implemented functions.
-    """
+    """Error class for not implemented functions."""
 
     # -------------------------------------------------------------------------
     def __init__(self, function_name, class_name):
         """
-        Constructor.
+        Initialize the FunctionNotImplementedError.
 
         @param function_name: the name of the not implemented function
         @type function_name: str
         @param class_name: the name of the class of the function
         @type class_name: str
-
         """
-
         self.function_name = function_name
         if not function_name:
-            self.function_name = '__unkown_function__'
+            self.function_name = "__unkown_function__"
 
         self.class_name = class_name
         if not class_name:
-            self.class_name = '__unkown_class__'
+            self.class_name = "__unkown_class__"
 
     # -------------------------------------------------------------------------
     def __str__(self):
-        """
-        Typecasting into a string for error output.
-        """
-
-        msg = "Function %(func)s() has to be overridden in class '%(cls)s'."
-        return msg % {'func': self.function_name, 'cls': self.class_name}
+        """Typecast into a string for error output."""
+        return f"Function {self.function_name}() has to be overridden in class {self.class_name}."
 
 
 # =============================================================================
 def reverse_rorror_codes(errors):
-    """Generates the reversed errors hash for a MonitoringObject."""
+    """Generate the reversed errors hash for a MonitoringObject."""
     error_codes = {}
 
     for name in errors.keys():
@@ -372,6 +352,7 @@ def reverse_rorror_codes(errors):
         error_codes[code] = name
 
     return error_codes
+
 
 # =============================================================================
 class MonitoringObject(object):
@@ -381,68 +362,67 @@ class MonitoringObject(object):
     It defines some usefull class properties.
     """
 
-    re_digit = re.compile(r'[\d~]')
-    re_dot = re.compile(r'\.')
-    re_ws = re.compile(r'\s')
+    re_digit = re.compile(r"[\d~]")
+    re_dot = re.compile(r"\.")
+    re_ws = re.compile(r"\s")
 
     errors = {
-        'OK': 0,
-        'WARNING': 1,
-        'CRITICAL': 2,
-        'UNKNOWN': 3,
-        'DEPENDENT': 4,
+        "OK": 0,
+        "WARNING": 1,
+        "CRITICAL": 2,
+        "UNKNOWN": 3,
+        "DEPENDENT": 4,
     }
     error_codes = reverse_rorror_codes(errors)
 
     # -------------------------------------------------------------------------
     @property
     def status_ok(self):
-        """The numerical value of OK."""
-        return self.errors['OK']
+        """Give the numerical value of OK."""
+        return self.errors["OK"]
 
     # -------------------------------------------------------------------------
     @property
     def status_warning(self):
-        """The numerical value of WARNING."""
-        return self.errors['WARNING']
+        """Give the numerical value of WARNING."""
+        return self.errors["WARNING"]
 
     # -------------------------------------------------------------------------
     @property
     def status_critical(self):
-        """The numerical value of CRITICAL."""
-        return self.errors['CRITICAL']
+        """Give the numerical value of CRITICAL."""
+        return self.errors["CRITICAL"]
 
     # -------------------------------------------------------------------------
     @property
     def status_unknown(self):
-        """The numerical value of UNKNOWN."""
-        return self.errors['UNKNOWN']
+        """Give the numerical value of UNKNOWN."""
+        return self.errors["UNKNOWN"]
 
     # -------------------------------------------------------------------------
     @property
     def status_dependent(self):
-        """The numerical value of DEPENDENT."""
-        return self.errors['DEPENDENT']
+        """Give the numerical value of DEPENDENT."""
+        return self.errors["DEPENDENT"]
 
     # -------------------------------------------------------------------------
     def as_dict(self):
         """
-        Typecasting into a dictionary.
+        Typecast into a dictionary.
 
         @return: structure as dict
         @rtype:  dict
 
         """
-
         ret = {
-            '__class__': self.__class__.__name__,
-            'errors': copy.copy(self.errors),
-            'error_codes': copy.copy(self.error_codes),
-            'status_ok': self.status_ok,
-            'status_warning': self.status_warning,
-            'status_critical': self.status_critical,
-            'status_unknown': self.status_unknown,
-            'status_dependent': self.status_dependent,
+            "__class__": self.__class__.__name__,
+            "errors": copy.copy(self.errors),
+            "error_codes": copy.copy(self.error_codes),
+            "status_ok": self.status_ok,
+            "status_warning": self.status_warning,
+            "status_critical": self.status_critical,
+            "status_unknown": self.status_unknown,
+            "status_dependent": self.status_dependent,
         }
 
         return ret
@@ -450,21 +430,17 @@ class MonitoringObject(object):
 
 # =============================================================================
 class MonitoringRange(MonitoringObject):
-    """
-    Encapsulation of a Nagios range, how used by some Nagios plugins.
-    """
+    """Encapsulation of a Nagios range, how used by some Nagios plugins."""
 
-    match_num_val = r'[+-]?\d+(?:\.\d*)?'
-    match_range = r'^(\@)?(?:(' + match_num_val + r'|~)?:)?(' + match_num_val + r')?$'
+    match_num_val = r"[+-]?\d+(?:\.\d*)?"
+    match_range = r"^(\@)?(?:(" + match_num_val + r"|~)?:)?(" + match_num_val + r")?$"
 
     re_range = re.compile(match_range)
 
     # -------------------------------------------------------------------------
-    def __init__(
-        self, range_str=None, start=None, end=None,
-            invert_match=False, initialized=None):
+    def __init__(self, range_str=None, start=None, end=None, invert_match=False, initialized=None):
         """
-        Initialisation of the MonitoringRange object.
+        Initialize the MonitoringRange object.
 
         @raise InvalidRangeError: if the given range_str was invalid
         @raise ValueError: on invalid start or end parameters, if
@@ -487,7 +463,6 @@ class MonitoringRange(MonitoringObject):
         @type initialized: bool
 
         """
-
         self._start = None
         """
         @ivar: the start value of the range, infinite, if None
@@ -522,16 +497,14 @@ class MonitoringRange(MonitoringObject):
         elif isinstance(start, float):
             self._start = start
         elif start is not None:
-            raise ValueError(
-                "Start value %r for MonitoringRange is unusable." % (start))
+            raise ValueError("Start value %r for MonitoringRange is unusable." % (start))
 
         if isinstance(end, int):
             self._end = int(end)
         elif isinstance(end, float):
             self._end = end
         elif end is not None:
-            raise ValueError(
-                "End value %r for MonitoringRange is unusable." % (end))
+            raise ValueError("End value %r for MonitoringRange is unusable." % (end))
 
         self._invert_match = bool(invert_match)
 
@@ -543,20 +516,22 @@ class MonitoringRange(MonitoringObject):
     # -----------------------------------------------------------
     @property
     def start(self):
-        """The start value of the range, infinite, if None."""
+        """Give the start value of the range, infinite, if None."""
         return self._start
 
     # -----------------------------------------------------------
     @property
     def end(self):
-        """The end value of the range, infinite, if None."""
+        """Give the end value of the range, infinite, if None."""
         return self._end
 
     # -----------------------------------------------------------
     @property
     def invert_match(self):
         """
-        Invert check logic - if true, then the check results in true,
+        Invert check logic.
+
+        If true, then the check results in true,
         if the value to check is outside the range, not inside
         """
         return self._invert_match
@@ -564,30 +539,29 @@ class MonitoringRange(MonitoringObject):
     # -----------------------------------------------------------
     @property
     def is_set(self):
-        """The initialisation of this object is complete."""
+        """Give the initialisation of this object is complete."""
         return self._initialized
 
     # -----------------------------------------------------------
     @property
     def initialized(self):
-        """The initialisation of this object is complete."""
+        """Give the initialisation of this object is complete."""
         return self._initialized
 
     # -------------------------------------------------------------------------
     def __str__(self):
-        """Typecasting into a string."""
-
+        """Typecast into a string."""
         if not self.initialized:
-            return ''
+            return ""
 
-        res = ''
+        res = ""
         if self.invert_match:
-            res = '@'
+            res = "@"
 
         if self.start is None:
-            res += '~:'
+            res += "~:"
         elif self.start != 0:
-            res += str(self.start) + ':'
+            res += str(self.start) + ":"
 
         if self.end is not None:
             res += str(self.end)
@@ -597,40 +571,41 @@ class MonitoringRange(MonitoringObject):
     # -------------------------------------------------------------------------
     def as_dict(self):
         """
-        Typecasting into a dictionary.
+        Typecast into a dictionary.
 
         @return: structure as dict
         @rtype:  dict
-
         """
         ret = super(MonitoringRange, self).as_dict()
 
-        ret['start'] = self.start
-        ret['end'] = self.end
-        ret['invert_match'] = self.invert_match
-        ret['initialized'] = self.initialized
+        ret["start"] = self.start
+        ret["end"] = self.end
+        ret["invert_match"] = self.invert_match
+        ret["initialized"] = self.initialized
 
         return ret
 
     # -------------------------------------------------------------------------
     def __repr__(self):
-        """Typecasting into a string for reproduction."""
-
-        out = '<MonitoringRange(start=%r, end=%r, invert_match=%r, initialized=%r)>' % (
-            self.start, self.end, self.invert_match, self.initialized)
+        """Typecast into a string for reproduction."""
+        out = "<MonitoringRange(start=%r, end=%r, invert_match=%r, initialized=%r)>" % (
+            self.start,
+            self.end,
+            self.invert_match,
+            self.initialized,
+        )
 
         return out
 
     # -------------------------------------------------------------------------
     def single_val(self):
         """
-        Returns a single Number value.
+        Return a single Number value.
 
         @return: self.end, if set, else self.start, if set, else None
         @rtype: Number or None
 
         """
-
         if not self.initialized:
             return None
         if self.end is not None:
@@ -640,17 +615,16 @@ class MonitoringRange(MonitoringObject):
     # -------------------------------------------------------------------------
     def parse_range_string(self, range_str):
         """
-        Parsing the given range_str and set self.start, self.end and
-        self.invert_match with the appropriate values.
+        Parse the given range_str.
+
+        Set self.start, self.end and self.invert_match with the appropriate values.
 
         @raise InvalidRangeError: if the given range_str was invalid
 
         @param range_str: the range string of the type 'x:y' to use for
                           initialisation of the object
         @type range_str: str or Number
-
         """
-
         # range is a Number - all clear
         if isinstance(range_str, Number):
             self._start = 0
@@ -661,7 +635,7 @@ class MonitoringRange(MonitoringObject):
         range_str = str(range_str)
 
         # strip out any whitespace
-        rstr = self.re_ws.sub('', range_str)
+        rstr = self.re_ws.sub("", range_str)
         # LOG.debug("Parsing given range %r ...", rstr)
 
         self._start = None
@@ -693,7 +667,7 @@ class MonitoringRange(MonitoringObject):
         start_should_infinity = False
 
         if start is not None:
-            if start == '~':
+            if start == "~":
                 start_should_infinity = True
                 start = None
             else:
@@ -730,10 +704,12 @@ class MonitoringRange(MonitoringObject):
 
     # -------------------------------------------------------------------------
     def check_range(self, value):
-        """Recverse method of self.check(), it inverts the result of check()
-        to provide the exact same behaviour like the check_range() method
-        of the Perl Nagios::Plugin::Range object."""
+        """
+        Invert the result of check().
 
+        Reverse method of self.check(), it provides the exact same behaviour like the
+        check_range() method of the Perl Nagios::Plugin::Range object.
+        """
         if self.check(value):
             return False
         return True
@@ -741,8 +717,9 @@ class MonitoringRange(MonitoringObject):
     # -------------------------------------------------------------------------
     def __contains__(self, value):
         """
-        Special method to implement the 'in' operator. With the help of this
-        method it's possible to write such things like::
+        Implement the 'in' operator.
+
+        With the help of this method it's possible to write such things like:
 
             my_range = MonitoringRange(80)
             ....
@@ -755,15 +732,13 @@ class MonitoringRange(MonitoringObject):
 
         @param value: the value to check against the current range
         @type value: int or long or float
-
         """
-
         return self.check(value)
 
     # -------------------------------------------------------------------------
     def check(self, value):
         """
-        Checks the given value against the current range.
+        Check the given value against the current range.
 
         @raise MonitoringRangeError: if the current range is not initialized
         @raise InvalidRangeValueError: if the given value is not a number
@@ -774,12 +749,9 @@ class MonitoringRange(MonitoringObject):
         @return: the value is inside the range or not.
                  if self.invert_match is True, then this retur value is reverted
         @rtype: bool
-
         """
-
         if not self.initialized:
-            raise MonitoringRangeError(
-                "The current MonitoringRange object is not initialized.")
+            raise MonitoringRangeError("The current MonitoringRange object is not initialized.")
 
         if not isinstance(value, Number):
             raise InvalidRangeValueError(value)
@@ -809,46 +781,51 @@ class MonitoringRange(MonitoringObject):
                 return my_false
 
         raise MonitoringRangeError(
-            "This point should never been reached in "
-            "checking a value against a range.")
+            "This point should never been reached in checking a value against a range."
+        )
 
         return my_false
 
 
 # =============================================================================
 class MonitoringPerformance(MonitoringObject):
-    """
-    A class for handling monitoring performance data.
-
-    """
+    """A class for handling monitoring performance data."""
 
     # Some regular expressions ...
-    re_not_word = re.compile(r'\W')
-    re_trailing_semicolons = re.compile(r';;$')
-    re_slash = re.compile(r'/')
-    re_leading_slash = re.compile(r'^/')
-    re_comma = re.compile(r',')
+    re_not_word = re.compile(r"\W")
+    re_trailing_semicolons = re.compile(r";;$")
+    re_slash = re.compile(r"/")
+    re_leading_slash = re.compile(r"^/")
+    re_comma = re.compile(r",")
 
-    pat_value = r'[-+]?[\d\.,]+'
-    pat_value_neg_inf = pat_value + r'|~'
+    pat_value = r"[-+]?[\d\.,]+"
+    pat_value_neg_inf = pat_value + r"|~"
     """pattern for a range with a negative infinity"""
 
-    pat_perfstring = r"^'?([^'=]+)'?=(" + pat_value + r')([\w%]*);?'
-    pat_perfstring += r'(' + pat_value_neg_inf + r'\:?' + pat_value + r'?)?;?'
-    pat_perfstring += r'(' + pat_value_neg_inf + r'\:?' + pat_value + r'?)?;?'
-    pat_perfstring += r'(' + pat_value + r'?)?;?'
-    pat_perfstring += r'(' + pat_value + r'?)?'
+    pat_perfstring = r"^'?([^'=]+)'?=(" + pat_value + r")([\w%]*);?"
+    pat_perfstring += r"(" + pat_value_neg_inf + r"\:?" + pat_value + r"?)?;?"
+    pat_perfstring += r"(" + pat_value_neg_inf + r"\:?" + pat_value + r"?)?;?"
+    pat_perfstring += r"(" + pat_value + r"?)?;?"
+    pat_perfstring += r"(" + pat_value + r"?)?"
 
     re_perfstring = re.compile(pat_perfstring)
 
-    re_perfoutput = re.compile(r'^(.*?=.*?)\s+')
+    re_perfoutput = re.compile(r"^(.*?=.*?)\s+")
 
     # -------------------------------------------------------------------------
     def __init__(
-        self, label, value, uom=None, threshold=None, warning=None, critical=None,
-            min_data=None, max_data=None):
+        self,
+        label,
+        value,
+        uom=None,
+        threshold=None,
+        warning=None,
+        critical=None,
+        min_data=None,
+        max_data=None,
+    ):
         """
-        Initialisation of the MonitoringPerformance object.
+        Initialise a MonitoringPerformance object.
 
         @param label: the label of the performance data, mandantory
         @type label: str
@@ -869,17 +846,16 @@ class MonitoringPerformance(MonitoringObject):
         @type min_data: Number or None
         @param max_data: the maximum data for performance output
         @type max_data: Number or None
-
         """
-
         self._label = str(label).strip()
         """
         @ivar: the label of the performance data
         @type: str
         """
-        if label is None or self._label == '':
+        if label is None or self._label == "":
             raise MonitoringPerformanceError(
-                "Empty label %r for MonitoringPerformance given." % (label))
+                "Empty label %r for MonitoringPerformance given." % (label)
+            )
 
         self._value = value
         """
@@ -888,16 +864,17 @@ class MonitoringPerformance(MonitoringObject):
         """
         if not isinstance(value, Number):
             raise MonitoringPerformanceError(
-                "Wrong value %r for MonitoringPerformance given." % (value))
+                "Wrong value %r for MonitoringPerformance given." % (value)
+            )
 
-        self._uom = ''
+        self._uom = ""
         """
         @ivar: the unit of measure
         @type: str
         """
         if uom is not None:
             # remove all whitespaces
-            self._uom = self.re_ws.sub('', str(uom))
+            self._uom = self.re_ws.sub("", str(uom))
 
         warn_range = MonitoringRange()
         if warning:
@@ -917,13 +894,11 @@ class MonitoringPerformance(MonitoringObject):
             self._threshold = threshold
         elif threshold is not None:
             raise MonitoringPerformanceError(
-                "The given threshold %r is neither None nor a MonitoringThreshold object." % (
-                    threshold))
-        else:
-            self._threshold = MonitoringThreshold(
-                warning=warn_range,
-                critical=crit_range
+                "The given threshold %r is neither None nor a MonitoringThreshold object."
+                % (threshold)
             )
+        else:
+            self._threshold = MonitoringThreshold(warning=warn_range, critical=crit_range)
 
         self._min_data = None
         """
@@ -933,7 +908,8 @@ class MonitoringPerformance(MonitoringObject):
         if min_data is not None:
             if not isinstance(min_data, Number):
                 raise MonitoringPerformanceError(
-                    "The given min_data %r is not None and not a Number." % (min_data))
+                    "The given min_data %r is not None and not a Number." % (min_data)
+                )
             else:
                 self._min_data = min_data
 
@@ -945,144 +921,142 @@ class MonitoringPerformance(MonitoringObject):
         if max_data is not None:
             if not isinstance(max_data, Number):
                 raise MonitoringPerformanceError(
-                    "The given max_data %r is not None and not a Number." % (max_data))
+                    "The given max_data %r is not None and not a Number." % (max_data)
+                )
             else:
                 self._max_data = max_data
 
     # -----------------------------------------------------------
     @property
     def label(self):
-        """The label of the performance data."""
+        """Give the label of the performance data."""
         return self._label
 
     # -----------------------------------------------------------
     @property
     def clean_label(self):
-        """Returns a "clean" label for use as a dataset name in RRD, ie, it
-        converts characters that are not [a-zA-Z0-9_] to _."""
+        """
+        Return a "clean" label for use as a dataset name in RRD.
 
+        ie, it converts characters that are not [a-zA-Z0-9_] to _.
+        """
         name = self.label
-        if name == '/':
+        if name == "/":
             name = "root"
         elif self.re_slash.search(name):
-            name = self.re_leading_slash.sub('', name)
-            name = self.re_slash.sub('_', name)
+            name = self.re_leading_slash.sub("", name)
+            name = self.re_slash.sub("_", name)
 
-        name = self.re_not_word.sub('_', name)
+        name = self.re_not_word.sub("_", name)
         return name
 
     # -----------------------------------------------------------
     @property
     def rrdlabel(self):
-        """Returns a string based on 'label' that is suitable for use as
-        dataset name of an RRD i.e. munges label to be 1-19 characters long
-        with only characters [a-zA-Z0-9_]."""
+        """
+        Return a string based on 'label' that is suitable for use as dataset name of an RRD.
 
+        I.e. munges label to be 1-19 characters long with only characters [a-zA-Z0-9_].
+        """
         return self.clean_label[0:19]
 
     # -----------------------------------------------------------
     @property
     def value(self):
-        """The value of the performance data."""
+        """Give the value of the performance data."""
         return self._value
 
     # -----------------------------------------------------------
     @property
     def uom(self):
-        """The unit of measure."""
+        """Give the unit of measure."""
         return self._uom
 
     # -----------------------------------------------------------
     @property
     def threshold(self):
-        """The threshold object containing the warning and the critical threshold."""
+        """Give the threshold object containing the warning and the critical threshold."""
         return self._threshold
 
     # -----------------------------------------------------------
     @property
     def warning(self):
-        """The warning threshold for performance data."""
+        """Give the warning threshold for performance data."""
         return self._threshold.warning
 
     # -----------------------------------------------------------
     @property
     def critical(self):
-        """The critical threshold for performance data."""
+        """Give the critical threshold for performance data."""
         return self._threshold.critical
 
     # -----------------------------------------------------------
     @property
     def min_data(self):
-        """The minimum data for performance output."""
+        """Give the minimum data for performance output."""
         return self._min_data
 
     # -----------------------------------------------------------
     @property
     def max_data(self):
-        """The maximum data for performance output."""
+        """Give the maximum data for performance output."""
         return self._max_data
 
     # -------------------------------------------------------------------------
     def __repr__(self):
-        """Typecasting into a string for reproduction."""
+        """Typecast into a string for reproduction."""
+        fields = []
+        for fname in ("label", "value", "uom", "threshold", "min_data", "max_data"):
+            fval = getattr(self, fname)
+            fields.append(f"{fname}={fval!r}")
 
-        out = (
-            '<MonitoringPerformance(label=%r, value=%r, uom=%r, threshold=%r, '
-            'min_data=%r, max_data=%r)>' % (
-                self.label, self.value, self.uom, self.threshold, self.min_data, self.max_data))
-
-        return out
+        return f"<{self.__class__.__name__}>(" + ", ".join(fields) + ")>"
 
     # -------------------------------------------------------------------------
     def as_dict(self):
         """
-        Typecasting into a dictionary.
+        Typecast into a dictionary.
 
         @return: structure as dict
         @rtype:  dict
-
         """
         ret = super(MonitoringPerformance, self).as_dict()
 
-        ret['label'] = self.label
-        ret['value'] = self.value
-        ret['uom'] = self.uom
-        ret['threshold'] = self.threshold
-        ret['min_data'] = self.min_data
-        ret['max_data'] = self.max_data
-        ret['status'] = self.status()
+        ret["label"] = self.label
+        ret["value"] = self.value
+        ret["uom"] = self.uom
+        ret["threshold"] = self.threshold
+        ret["min_data"] = self.min_data
+        ret["max_data"] = self.max_data
+        ret["status"] = self.status()
 
         return ret
 
     # -------------------------------------------------------------------------
     def status(self):
         """
-        Returns the Monitoring state of the current value against the thresholds
+        Return the Monitoring state of the current value against the thresholds.
 
         @return: Monitoring.state
         @rtype: int
-
         """
-
         return self.threshold.get_status([self.value])
 
     # -------------------------------------------------------------------------
     @staticmethod
     def _nvl(value):
         """Map None to ''."""
-
         if value is None:
-            return ''
+            return ""
         return str(value)
 
     # -------------------------------------------------------------------------
     def perfoutput(self):
         """
-        Outputs the data in MonitoringPlugin perfdata format i.e.
-        label=value[uom];[warn];[crit];[min];[max].
+        Output the data in MonitoringPlugin perfdata format.
 
+        I.e.  label=value[uom];[warn];[crit];[min];[max].
         """
-
         # Add quotes if label contains a space character
         label = self.label
         if self.re_ws.search(label):
@@ -1099,7 +1073,7 @@ class MonitoringPerformance(MonitoringObject):
         )
 
         # omit trailing ;;
-        out = self.re_trailing_semicolons.sub('', out)
+        out = self.re_trailing_semicolons.sub("", out)
 
         return out
 
@@ -1115,14 +1089,12 @@ class MonitoringPerformance(MonitoringObject):
 
         LOG.debug("Found parsed performance output: %r", match.groups())
 
-        if match.group(1) is None or match.group(1) == '':
-            LOG.warn(
-                "String %r was not a valid performance output, no label found.", string)
+        if match.group(1) is None or match.group(1) == "":
+            LOG.warn("String %r was not a valid performance output, no label found.", string)
             return None
 
-        if match.group(2) is None or match.group(2) == '':
-            LOG.warn(
-                "String %r was not a valid performance output, no value found.", string)
+        if match.group(2) is None or match.group(2) == "":
+            LOG.warn("String %r was not a valid performance output, no value found.", string)
             return None
 
         info = []
@@ -1132,15 +1104,14 @@ class MonitoringPerformance(MonitoringObject):
             if i in (0, 2):
                 val = field.strip()
             elif field is not None:
-                val = cls.re_comma.sub('.', field)
+                val = cls.re_comma.sub(".", field)
                 try:
                     if cls.re_dot.search(field):
                         val = float(field)
                     else:
                         val = int(field)
                 except ValueError as e:
-                    LOG.warn(
-                        "Invalid performance value %r found: %s", field, str(e))
+                    LOG.warn("Invalid performance value %r found: %s", field, str(e))
                     return None
             info.append(val)
             i += 1
@@ -1148,8 +1119,14 @@ class MonitoringPerformance(MonitoringObject):
         LOG.debug("Found parfdata fields: %r", info)
 
         obj = cls(
-            label=info[0], value=info[1], uom=info[2], warning=info[3],
-            critical=info[4], min_data=info[5], max_data=info[6])
+            label=info[0],
+            value=info[1],
+            uom=info[2],
+            warning=info[3],
+            critical=info[4],
+            min_data=info[5],
+            max_data=info[6],
+        )
 
         return obj
 
@@ -1184,17 +1161,17 @@ class MonitoringPerformance(MonitoringObject):
 
             obj = None
             ps = ps.strip()
-            if ps == '':
+            if ps == "":
                 break
 
-            if ps.count('=') > 1:
+            if ps.count("=") > 1:
 
                 # If there is more than 1 equals sign, split it out and
                 # parse individually
                 match = cls.re_perfoutput.search(ps)
                 if match:
                     obj = match.group(1)
-                    ps = cls.re_perfoutput.sub('', ps, 1)
+                    ps = cls.re_perfoutput.sub("", ps, 1)
                     obj = cls._parse(ps)
                 else:
                     # This could occur if perfdata was soemthing=value=
@@ -1203,7 +1180,7 @@ class MonitoringPerformance(MonitoringObject):
 
             else:
                 obj = cls._parse(ps)
-                ps = ''
+                ps = ""
 
             if obj:
                 perfs.append(obj)
@@ -1252,8 +1229,7 @@ class MonitoringThreshold(MonitoringObject):
 
     @warning.setter
     def warning(self, value):
-        if value is None or (
-                isinstance(value, str) and value == ''):
+        if value is None or (isinstance(value, str) and value == ""):
             self._warning = MonitoringRange()
             return
 
@@ -1276,8 +1252,7 @@ class MonitoringThreshold(MonitoringObject):
 
     @critical.setter
     def critical(self, value):
-        if value is None or (
-                isinstance(value, str) and value == ''):
+        if value is None or (isinstance(value, str) and value == ""):
             self._critical = MonitoringRange()
             return
 
@@ -1303,8 +1278,8 @@ class MonitoringThreshold(MonitoringObject):
         """
         ret = super(MonitoringThreshold, self).as_dict()
 
-        ret['warning'] = self.warning.as_dict()
-        ret['critical'] = self.critical.as_dict()
+        ret["warning"] = self.warning.as_dict()
+        ret["critical"] = self.critical.as_dict()
 
         return ret
 
@@ -1312,8 +1287,7 @@ class MonitoringThreshold(MonitoringObject):
     def __repr__(self):
         """Typecasting into a string for reproduction."""
 
-        out = '<MonitoringThreshold(warning=%r, critical=%r)>' % (
-            self.warning, self.critical)
+        out = "<MonitoringThreshold(warning=%r, critical=%r)>" % (self.warning, self.critical)
 
         return out
 
@@ -1361,6 +1335,7 @@ class MonitoringThreshold(MonitoringObject):
 
         return self.status_ok
 
+
 # =============================================================================
 class MonitoringPlugin(MonitoringObject):
 
@@ -1373,18 +1348,24 @@ class MonitoringPlugin(MonitoringObject):
             if v:
                 return v
         aname = sys.argv[0]
-        aname = re.sub(r'\.py$', '', aname, flags=re.IGNORECASE)
+        aname = re.sub(r"\.py$", "", aname, flags=re.IGNORECASE)
         return os.path.basename(aname)
 
     # -------------------------------------------------------------------------
     def __init__(
-            self, appname=None, verbose=0, version=None, base_dir=None,
-            description=None, initialized=False):
+        self,
+        appname=None,
+        verbose=0,
+        version=None,
+        base_dir=None,
+        description=None,
+        initialized=False,
+    ):
 
         self._appname = self.get_generic_appname(appname)
         self._version = __version__
         if version:
-            self._version = version + ' (' + os.path.basename(__file__) + ': ' + __version__ + ')'
+            self._version = version + " (" + os.path.basename(__file__) + ": " + __version__ + ")"
         self._verbose = int(verbose)
         self._initialized = False
         self._base_dir = None
@@ -1393,9 +1374,9 @@ class MonitoringPlugin(MonitoringObject):
         self.perf_data = []
 
         self.messages = {
-            'warning': [],
-            'critical': [],
-            'ok': [],
+            "warning": [],
+            "critical": [],
+            "ok": [],
         }
 
         if base_dir:
@@ -1416,7 +1397,7 @@ class MonitoringPlugin(MonitoringObject):
         self.post_init()
 
         if self.verbose > 2:
-            msg = 'Current plugin properties:\n' + pp(self.as_dict())
+            msg = "Current plugin properties:\n" + pp(self.as_dict())
             LOG.debug(msg)
 
     # -------------------------------------------------------------------------
@@ -1430,7 +1411,7 @@ class MonitoringPlugin(MonitoringObject):
 
         msg = str(error_message).strip()
         if not msg:
-            msg = 'undefined error.'
+            msg = "undefined error."
         title = None
 
         if isinstance(error_message, Exception):
@@ -1439,8 +1420,8 @@ class MonitoringPlugin(MonitoringObject):
             if exception_name is not None:
                 title = exception_name.strip()
             else:
-                title = 'Exception happened'
-        msg = title + ': ' + msg
+                title = "Exception happened"
+        msg = title + ": " + msg
 
         root_log = logging.getLogger()
         has_handlers = False
@@ -1450,17 +1431,17 @@ class MonitoringPlugin(MonitoringObject):
         if has_handlers:
             LOG.error(msg)
             if tb:
-                LOG.error('Traceback:\n' + tb)
+                LOG.error("Traceback:\n" + tb)
         else:
             curdate = datetime.datetime.now()
-            curdate_str = "[" + curdate.isoformat(' ') + "]: "
+            curdate_str = "[" + curdate.isoformat(" ") + "]: "
             msg = curdate_str + msg + "\n"
-            if hasattr(sys.stderr, 'buffer'):
+            if hasattr(sys.stderr, "buffer"):
                 sys.stderr.buffer.write(to_bytes(msg))
             else:
                 sys.stderr.write(msg)
             if tb:
-                print('Traceback:\n' + tb)
+                print("Traceback:\n" + tb)
 
         return
 
@@ -1468,7 +1449,7 @@ class MonitoringPlugin(MonitoringObject):
     @property
     def appname(self):
         """The name of the current running application."""
-        if hasattr(self, '_appname'):
+        if hasattr(self, "_appname"):
             return self._appname
         return os.path.basename(sys.argv[0])
 
@@ -1483,13 +1464,13 @@ class MonitoringPlugin(MonitoringObject):
     @property
     def version(self):
         """The version string of the current object or application."""
-        return getattr(self, '_version', __version__)
+        return getattr(self, "_version", __version__)
 
     # -----------------------------------------------------------
     @property
     def verbose(self):
         """The verbosity level."""
-        return getattr(self, '_verbose', 0)
+        return getattr(self, "_verbose", 0)
 
     @verbose.setter
     def verbose(self, value):
@@ -1503,7 +1484,7 @@ class MonitoringPlugin(MonitoringObject):
     @property
     def initialized(self):
         """The initialisation of this object is complete."""
-        return getattr(self, '_initialized', False)
+        return getattr(self, "_initialized", False)
 
     @initialized.setter
     def initialized(self, value):
@@ -1518,7 +1499,7 @@ class MonitoringPlugin(MonitoringObject):
     @base_dir.setter
     def base_dir(self, value):
         base_dir_path = Path(value)
-        if str(base_dir_path).startswith('~'):
+        if str(base_dir_path).startswith("~"):
             base_dir_path = base_dir_path.expanduser()
         if not base_dir_path.exists():
             msg = "Base directory {!r} does not exists.".format(str(value))
@@ -1546,7 +1527,8 @@ class MonitoringPlugin(MonitoringObject):
         val = int(value)
         if val < 0 or val > 3:
             raise MonitoringException(
-                "Invalid state {!r} given - mus be >= 0 an <= 4.".format(value))
+                "Invalid state {!r} given - mus be >= 0 an <= 4.".format(value)
+            )
         self._status = val
 
     # -----------------------------------------------------------
@@ -1591,20 +1573,20 @@ class MonitoringPlugin(MonitoringObject):
         """
         ret = super(MonitoringPlugin, self).as_dict()
 
-        ret['appname'] = self.appname
-        ret['arg_parser'] = self.arg_parser
-        ret['args'] = copy.copy(self.args.__dict__)
-        ret['base_dir'] = self.base_dir
-        ret['description'] = self.verbose
-        ret['initialized'] = self.initialized
-        ret['perf_data'] = []
-        ret['status'] = self.status
-        ret['status_msg'] = self.status_msg
-        ret['verbose'] = self.verbose
-        ret['version'] = self.version
+        ret["appname"] = self.appname
+        ret["arg_parser"] = self.arg_parser
+        ret["args"] = copy.copy(self.args.__dict__)
+        ret["base_dir"] = self.base_dir
+        ret["description"] = self.verbose
+        ret["initialized"] = self.initialized
+        ret["perf_data"] = []
+        ret["status"] = self.status
+        ret["status_msg"] = self.status_msg
+        ret["verbose"] = self.verbose
+        ret["version"] = self.version
 
         for pdata in self.perf_data:
-            ret['perf_data'].append(pdata.as_dict())
+            ret["perf_data"].append(pdata.as_dict())
 
         return ret
 
@@ -1625,32 +1607,39 @@ class MonitoringPlugin(MonitoringObject):
 
         self.init_arg_parser()
 
-        general_group = self.arg_parser.add_argument_group('General_options')
+        general_group = self.arg_parser.add_argument_group("General_options")
 
         general_group.add_argument(
-            "-v", "--verbose", action="count", dest='verbose',
-            help='Increase the verbosity level',
+            "-v",
+            "--verbose",
+            action="count",
+            dest="verbose",
+            help="Increase the verbosity level",
         )
 
         general_group.add_argument(
-            "-h", "--help", action='help', dest='help',
-            help='Show this help message and exit.'
+            "-h", "--help", action="help", dest="help", help="Show this help message and exit."
         )
 
         general_group.add_argument(
-            "--usage", action='store_true', dest='usage',
-            help="Display brief usage message and exit."
+            "--usage",
+            action="store_true",
+            dest="usage",
+            help="Display brief usage message and exit.",
         )
 
         v_msg = "Version of %(prog)s: {}".format(self.version)
         general_group.add_argument(
-            "-V", '--version', action='version', version=v_msg,
-            help="Show program's version number and exit."
+            "-V",
+            "--version",
+            action="version",
+            version=v_msg,
+            help="Show program's version number and exit.",
         )
 
     # -------------------------------------------------------------------------
     def init_arg_parser(self):
-        '''Can be overridden ...'''
+        """Can be overridden ..."""
         pass
 
     # -------------------------------------------------------------------------
@@ -1669,13 +1658,21 @@ class MonitoringPlugin(MonitoringObject):
 
     # -------------------------------------------------------------------------
     def perform_arg_parser(self):
-        '''Can be overridden ...'''
+        """Can be overridden ..."""
         pass
 
     # -------------------------------------------------------------------------
     def add_perfdata(
-        self, label, value, uom=None, threshold=None, warning=None, critical=None,
-            min_data=None, max_data=None):
+        self,
+        label,
+        value,
+        uom=None,
+        threshold=None,
+        warning=None,
+        critical=None,
+        min_data=None,
+        max_data=None,
+    ):
         """
         Adding a MonitoringPerformance object to self.perf_data.
 
@@ -1702,8 +1699,14 @@ class MonitoringPlugin(MonitoringObject):
         """
 
         pdata = MonitoringPerformance(
-            label=label, value=value, uom=uom, threshold=threshold,
-            warning=warning, critical=critical, min_data=min_data, max_data=max_data,
+            label=label,
+            value=value,
+            uom=uom,
+            threshold=threshold,
+            warning=warning,
+            critical=critical,
+            min_data=min_data,
+            max_data=max_data,
         )
 
         self.perf_data.append(pdata)
@@ -1714,12 +1717,11 @@ class MonitoringPlugin(MonitoringObject):
         if status_code not in self.error_codes:
             ocode = status_code
             status_code = 3
-            status_msg += ' (Unknown status code {})'.format(ocode)
+            status_msg += " (Unknown status code {})".format(ocode)
 
         status_name = self.error_codes[status_code]
 
-        msg = "{sn} - {app}: {msg}".format(
-            sn=status_name, app=self.appname, msg=status_msg)
+        msg = "{sn} - {app}: {msg}".format(sn=status_name, app=self.appname, msg=status_msg)
         print(msg)
         sys.exit(status_code)
 
@@ -1741,16 +1743,16 @@ class MonitoringPlugin(MonitoringObject):
         root_logger.setLevel(log_level)
 
         # create formatter
-        format_str = ''
+        format_str = ""
         if self.verbose:
-            format_str = '[%(asctime)s]: '
-        format_str += self.appname + ': '
+            format_str = "[%(asctime)s]: "
+        format_str += self.appname + ": "
         if self.verbose:
             if self.verbose > 1:
-                format_str += '%(name)s(%(lineno)d) %(funcName)s() '
+                format_str += "%(name)s(%(lineno)d) %(funcName)s() "
             else:
-                format_str += '%(name)s '
-        format_str += '%(levelname)s - %(message)s'
+                format_str += "%(name)s "
+        format_str += "%(levelname)s - %(message)s"
         formatter = logging.Formatter(format_str)
 
         # create log handler for console output
@@ -1767,9 +1769,9 @@ class MonitoringPlugin(MonitoringObject):
         """Generates a string with all formatted performance data."""
 
         if not self.perf_data:
-            return ''
+            return ""
 
-        return ' '.join([x.perfoutput() for x in self.perf_data])
+        return " ".join([x.perfoutput() for x in self.perf_data])
 
     # -------------------------------------------------------------------------
     def die(self, message, no_status_line=False):
@@ -1791,14 +1793,14 @@ class MonitoringPlugin(MonitoringObject):
             message = self.status_msg
         else:
             if isinstance(message, list) or isinstance(message, tuple):
-                message = '\n'.join(lambda x: str(x).strip(), message)
+                message = "\n".join(lambda x: str(x).strip(), message)
             else:
                 message = str(message).strip()
 
         LOG.debug("Exiting with status {s} ({c}): {m}".format(s=status, c=code, m=message))
 
         # Setup output
-        output = ''
+        output = ""
         if no_status_line:
             if message:
                 output = message
@@ -1814,7 +1816,7 @@ class MonitoringPlugin(MonitoringObject):
             if pdata:
                 output += " | " + pdata
             if len(lines) > 1:
-                output += '\n' + '\n'.join(lines[1:])
+                output += "\n" + "\n".join(lines[1:])
 
         print(output)
         sys.exit(status)
@@ -1837,7 +1839,7 @@ class MonitoringPlugin(MonitoringObject):
 
         MUST be overwritten by descendant classes.
         """
-        raise FunctionNotImplementedError('run', self.__class__.__name__)
+        raise FunctionNotImplementedError("run", self.__class__.__name__)
 
     # -------------------------------------------------------------------------
     def _run(self):
@@ -1852,7 +1854,7 @@ class MonitoringPlugin(MonitoringObject):
             try:
                 raise MonitoringException("The application is not completely initialized.")
             except Exception as e:
-                tb = ''
+                tb = ""
                 for m in traceback.format_exc():
                     tb += m
                 self.handle_error(str(e), e.__class__.__name__, tb)
@@ -1862,25 +1864,27 @@ class MonitoringPlugin(MonitoringObject):
         try:
             self.pre_run()
         except Exception as e:
-            tb = ''
+            tb = ""
             for m in traceback.format_exc():
-                 tb += m
+                tb += m
             self.handle_error(str(e), e.__class__.__name__, tb)
             self.exit(self.status_unknown)
 
         if not self.initialized:
             raise MonitoringException(
                 "Object {!r} seems not to be completely initialized.".format(
-                    self.__class__.__name__))
+                    self.__class__.__name__
+                )
+            )
 
         try:
             self.run()
         except MonitoringException as e:
             self.die(str(e), no_status_line=True)
         except Exception as e:
-            tb = ''
+            tb = ""
             for m in traceback.format_exc():
-                 tb += m
+                tb += m
             self.handle_error(str(e), e.__class__.__name__, tb)
             self.status = self.status_unknown
             self.die(str(e), no_status_line=True)
@@ -1890,9 +1894,9 @@ class MonitoringPlugin(MonitoringObject):
         except MonitoringException as e:
             self.die(str(e), no_status_line=True)
         except Exception as e:
-            tb = ''
+            tb = ""
             for m in traceback.format_exc():
-                 tb += m
+                tb += m
             self.handle_error(str(e), e.__class__.__name__, tb)
             self.status = self.status_unknown
             self.die(str(e), no_status_line=True)

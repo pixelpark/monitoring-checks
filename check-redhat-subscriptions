@@ -9,6 +9,7 @@
 @copyright: © 2023 - 2026 Frank Brehm, Berlin, Germany
 @license: GPL3+
 @date:      2026-03-13
+
 Documentation of the RedHat API: https://access.redhat.com/management/api
 
 """
