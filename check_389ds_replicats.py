@@ -1,73 +1,81 @@
 #!/usr/bin/python3
 # -*- coding: utf-8 -*-
-#
-# Author: Frank Brehm <frank@brehm-online.com
-#         Berlin, Germany, 2021
-# Date:   2026-03-12
-# By an idea of: Emmanuel BUU <emmanuel.buu@ives.fr> (c) IVèS
-#                http://www.ives.fr/
-#
-# Usage: ./check_389ds_replicats.py -D cn=admin -H LDAP_SERVER -y PASSWORD_FILE
-#        OK - check_389ds_replicats: Replication to <REPLICATION_PARTNER>, Last Operation <TIMESTAMP>, Status: Error (0) Replica acquired successfully: Incremental update succeeded.
-#
+"""
+@summary: Monitoring script for checking the status of a 389ds LDAP server replica.
+
+@author:: Frank Brehm
+@contact: frank@brehm-online.com
+
+@copyright: © 2026 Frank Brehm, Berlin, Germany, 2021
+@date:   2026-03-13
+
+By an idea of: Emmanuel BUU <emmanuel.buu@ives.fr> (c) IVèS
+               http://www.ives.fr/
+
+Usage: ./check_389ds_replicats.py -D cn=admin -H LDAP_SERVER -y PASSWORD_FILE
+       OK - check_389ds_replicats: Replication to <REPLICATION_PARTNER>, \
+            Last Operation <TIMESTAMP>, Status: Error (0) Replica acquired \
+            successfully: Incremental update succeeded.
+"""
 
 from __future__ import print_function
 
-import sys
-import os
-import logging
+# Standard modules
 import argparse
-import re
-import pprint
-import pathlib
 import datetime
-import traceback
 import json
-import ssl
+import logging
+import os
+import pathlib
+import pprint
+import re
+import sys
+import traceback
+from ssl import CERT_NONE, CERT_REQUIRED
 
-from ssl import CERT_REQUIRED, CERT_NONE
-from ldap3 import Tls, Server, Connection, Reader, ObjectDef
-from ldap3 import IP_V4_PREFERRED, ROUND_ROBIN, AUTO_BIND_NONE, ALL_ATTRIBUTES
+# Third party modules
+from ldap3 import ALL_ATTRIBUTES, AUTO_BIND_NONE, IP_V4_PREFERRED
+from ldap3 import Connection, Server, Tls
 from ldap3 import SUBTREE
-from ldap3.core.exceptions import LDAPPasswordIsMandatoryError
-from ldap3.utils.log import set_library_log_detail_level, ERROR, BASIC, PROTOCOL, NETWORK, EXTENDED
+from ldap3.core.exceptions import LDAPException, LDAPPasswordIsMandatoryError
+from ldap3.utils.log import BASIC, ERROR, EXTENDED, NETWORK, PROTOCOL, set_library_log_detail_level
 
 if sys.version_info[0] != 3:
     print("This script is intended to use with Python3.", file=sys.stderr)
-    print("You are using Python: {0}.{1}.{2}-{3}-{4}.\n".format(
-        *sys.version_info), file=sys.stderr)
+    print(
+        "You are using Python: {0}.{1}.{2}-{3}-{4}.\n".format(*sys.version_info), file=sys.stderr
+    )
     sys.exit(1)
 
-if sys.version_info[1] < 4:
-    print("A minimal Python version of 3.4 is necessary to execute this script.", file=sys.stderr)
-    print("You are using Python: {0}.{1}.{2}-{3}-{4}.\n".format(
-        *sys.version_info), file=sys.stderr)
+if sys.version_info[1] < 6:
+    print("A minimal Python version of 3.6 is necessary to execute this script.", file=sys.stderr)
+    print(
+        "You are using Python: {0}.{1}.{2}-{3}-{4}.\n".format(*sys.version_info), file=sys.stderr
+    )
     sys.exit(1)
 
 LOG = logging.getLogger(__name__)
 
-__author__ = 'Frank Brehm <frank@brehm-online.com>'
-__copyright__ = '(C) 2021 by Frank Brehm, Berlin'
-__version__ = '0.4.1'
+__author__ = "Frank Brehm <frank@brehm-online.com>"
+__copyright__ = "(C) 2026 by Frank Brehm, Berlin"
+__version__ = "0.5.0"
 
 
 # =============================================================================
 def pp(value, indent=4, width=99, depth=None):
     """
-    Returns a pretty print string of the given value.
+    Return a pretty print string of the given value.
 
     @return: pretty print string
     @rtype: str
     """
-
-    pretty_printer = pprint.PrettyPrinter(
-        indent=indent, width=width, depth=depth)
+    pretty_printer = pprint.PrettyPrinter(indent=indent, width=width, depth=depth)
     return pretty_printer.pformat(value)
 
 
 # =============================================================================
 def get_error_codes(errors):
-
+    """Return the reverse hash by the given errors hash."""
     error_codes = {}
     for name in errors.keys():
         code = errors[name]
@@ -75,15 +83,17 @@ def get_error_codes(errors):
 
     return error_codes
 
+
 # =============================================================================
 class Check389dsReplicatsApp(object):
+    """Appliction class for the check_389ds_replicats application."""
 
     errors = {
-        'OK': 0,
-        'WARNING': 1,
-        'CRITICAL': 2,
-        'UNKNOWN': 3,
-        'DEPENDENT': 4,
+        "OK": 0,
+        "WARNING": 1,
+        "CRITICAL": 2,
+        "UNKNOWN": 3,
+        "DEPENDENT": 4,
     }
 
     error_codes = get_error_codes(errors)
@@ -94,12 +104,12 @@ class Check389dsReplicatsApp(object):
     default_ldap_ssl_verify = CERT_REQUIRED
     default_timeout = 30
 
-    default_ldap_base_dn = 'cn=config'
+    default_ldap_base_dn = "cn=config"
 
     # -------------------------------------------------------------------------
     @classmethod
     def get_error_codes(cls):
-
+        """Build the class hash 'error_codes' as the reverse to the class hash 'errors'."""
         for name in cls.errors.keys():
             code = cls.errors[name]
             cls.error_codes[code] = name
@@ -107,30 +117,29 @@ class Check389dsReplicatsApp(object):
     # -------------------------------------------------------------------------
     @classmethod
     def get_generic_appname(cls, appname=None):
-
+        """Get the base name of the currently running application."""
         if appname:
             v = str(appname).strip()
             if v:
                 return v
         aname = sys.argv[0]
-        aname = re.sub(r'\.py$', '', aname, flags=re.IGNORECASE)
+        aname = re.sub(r"\.py$", "", aname, flags=re.IGNORECASE)
         return os.path.basename(aname)
 
     # -------------------------------------------------------------------------
-    def __init__(
-            self, appname=None, verbose=0, version=__version__, base_dir=None):
-
+    def __init__(self, appname=None, verbose=0, version=__version__, base_dir=None):
+        """Initialize the Check389dsReplicatsApp object."""
         self._appname = self.get_generic_appname(appname)
         self._version = version
         self._verbose = int(verbose)
         self._initialized = False
         self._base_dir = None
 
-        self.host  = None
+        self.host = None
         self.bind_dn = None
         self.bind_pw = None
         self.status_code = 3
-        self.status_msg = 'wtf?!?'
+        self.status_msg = "wtf?!?"
         self.ignore_states = [0]
         self.ldap_use_ssl = self.default_ldap_use_ssl
         self.ldap_ssl_verify = self.default_ldap_ssl_verify
@@ -165,12 +174,11 @@ class Check389dsReplicatsApp(object):
         self.initialized = True
 
     # -------------------------------------------------------------------------
-    def handle_error(
-            self, error_message=None, exception_name=None, do_traceback=False):
-
+    def handle_error(self, error_message=None, exception_name=None, do_traceback=False):
+        """Handle all unexpected errors gracefully."""
         msg = str(error_message).strip()
         if not msg:
-            msg = _('undefined error.')
+            msg = "undefined error."
         title = None
 
         if isinstance(error_message, Exception):
@@ -179,8 +187,8 @@ class Check389dsReplicatsApp(object):
             if exception_name is not None:
                 title = exception_name.strip()
             else:
-                title = _('Exception happened')
-        msg = title + ': ' + msg
+                title = "Exception happened"
+        msg = title + ": " + msg
 
         root_log = logging.getLogger()
         has_handlers = False
@@ -193,10 +201,10 @@ class Check389dsReplicatsApp(object):
                 LOG.error(traceback.format_exc())
         else:
             curdate = datetime.datetime.now()
-            curdate_str = "[" + curdate.isoformat(' ') + "]: "
+            curdate_str = "[" + curdate.isoformat(" ") + "]: "
             msg = curdate_str + msg + "\n"
-            if hasattr(sys.stderr, 'buffer'):
-                sys.stderr.buffer.write(to_bytes(msg))
+            if hasattr(sys.stderr, "buffer"):
+                sys.stderr.buffer.write(msg.encode("utf-8"))
             else:
                 sys.stderr.write(msg)
             if do_traceback:
@@ -207,8 +215,8 @@ class Check389dsReplicatsApp(object):
     # -----------------------------------------------------------
     @property
     def appname(self):
-        """The name of the current running application."""
-        if hasattr(self, '_appname'):
+        """Give the name of the current running application."""
+        if hasattr(self, "_appname"):
             return self._appname
         return os.path.basename(sys.argv[0])
 
@@ -222,14 +230,14 @@ class Check389dsReplicatsApp(object):
     # -----------------------------------------------------------
     @property
     def version(self):
-        """The version string of the current object or application."""
-        return getattr(self, '_version', __version__)
+        """Give the version string of the current object or application."""
+        return getattr(self, "_version", __version__)
 
     # -----------------------------------------------------------
     @property
     def verbose(self):
-        """The verbosity level."""
-        return getattr(self, '_verbose', 0)
+        """Give the verbosity level."""
+        return getattr(self, "_verbose", 0)
 
     @verbose.setter
     def verbose(self, value):
@@ -237,13 +245,13 @@ class Check389dsReplicatsApp(object):
         if v >= 0:
             self._verbose = v
         else:
-            LOG.warning(_("Wrong verbose level {!r}, must be >= 0").format(value))
+            LOG.warning("Wrong verbose level {!r}, must be >= 0".format(value))
 
     # -----------------------------------------------------------
     @property
     def initialized(self):
-        """The initialisation of this object is complete."""
-        return getattr(self, '_initialized', False)
+        """Give the initialisation status of this object."""
+        return getattr(self, "_initialized", False)
 
     @initialized.setter
     def initialized(self, value):
@@ -252,19 +260,19 @@ class Check389dsReplicatsApp(object):
     # -----------------------------------------------------------
     @property
     def base_dir(self):
-        """The base directory used for different purposes."""
+        """Return the base directory used for different purposes."""
         return self._base_dir
 
     @base_dir.setter
     def base_dir(self, value):
         base_dir_path = pathlib.Path(value)
-        if str(base_dir_path).startswith('~'):
+        if str(base_dir_path).startswith("~"):
             base_dir_path = base_dir_path.expanduser()
         if not base_dir_path.exists():
-            msg = _("Base directory {!r} does not exists.").format(str(value))
+            msg = "Base directory {!r} does not exists.".format(str(value))
             self.handle_error(msg, self.appname)
         elif not base_dir_path.is_dir():
-            msg = _("Path for base directory {!r} is not a directory.").format(str(value))
+            msg = "Path for base directory {!r} is not a directory.".format(str(value))
             self.handle_error(msg, self.appname)
         else:
             self._base_dir = base_dir_path
@@ -272,19 +280,17 @@ class Check389dsReplicatsApp(object):
     # -------------------------------------------------------------------------
     def __str__(self):
         """
-        Typecasting function for translating object structure
-        into a string
+        Translate object structure into a string.
 
         @return: structure as string
         @rtype:  str
         """
-
         return pp(self.as_dict(short=True))
 
     # -------------------------------------------------------------------------
     def as_dict(self, short=True):
         """
-        Transforms the elements of the object into a dict
+        Transform the elements of the object into a dict.
 
         @param short: don't include local properties in resulting dict.
         @type short: bool
@@ -292,34 +298,28 @@ class Check389dsReplicatsApp(object):
         @return: structure as dict
         @rtype:  dict
         """
-
         res = {}
+
         for key in self.__dict__:
-            if short and key.startswith('_') and not key.startswith('__'):
+            if short and key.startswith("_") and not key.startswith("__"):
                 continue
             res[key] = self.__dict__[key]
 
-        res['__class_name__'] = self.__class__.__name__
-        res['appname'] = self.appname
-        res['version'] = self.version
-        res['verbose'] = self.verbose
-        res['initialized'] = self.initialized
-        res['base_dir'] = self.base_dir
+        res["__class_name__"] = self.__class__.__name__
+        res["appname"] = self.appname
+        res["version"] = self.version
+        res["verbose"] = self.verbose
+        res["initialized"] = self.initialized
+        res["base_dir"] = self.base_dir
         if self.verbose < 4:
-            res['bind_pw'] = '********'
+            res["bind_pw"] = "********"
 
         return res
+
     # -------------------------------------------------------------------------
     def init_arg_parser(self):
-        """
-        Local called method to initiate the argument parser.
-
-        @raise PBApplicationError: on some errors
-
-        """
-
-        description = ("This is script for getting the replication state "
-                "of an 389ds LDAP server.")
+        """Initialize the argument parser."""
+        description = "This is script for getting the replication state of an 389ds LDAP server."
 
         self.arg_parser = argparse.ArgumentParser(
             prog=self.appname,
@@ -327,41 +327,62 @@ class Check389dsReplicatsApp(object):
             add_help=False,
         )
 
-        ldap_group = self.arg_parser.add_argument_group('LDAP options')
+        ldap_group = self.arg_parser.add_argument_group("LDAP options")
 
         # Connection stuff
         ldap_group.add_argument(
-            '-H', '--host', dest='host', required=True,
-            help="The fqdn or address of the host to monitor."
+            "-H",
+            "--host",
+            dest="host",
+            required=True,
+            help="The fqdn or address of the host to monitor.",
         )
 
         ldap_group.add_argument(
-            '-P', '--port', dest="port", type=int,
-            help=("The used TCP/UDP port number when connecting to the LDAP server. "
+            "-P",
+            "--port",
+            dest="port",
+            type=int,
+            help=(
+                "The used TCP/UDP port number when connecting to the LDAP server. "
                 "Defaults to {pnssl}, if using ldap://, and to {pssl}, if "
-                "using ldaps://.").format(
-                    pnssl=self.default_ldap_port, pssl=self.default_ldap_port_ssl),
+                "using ldaps://."
+            ).format(pnssl=self.default_ldap_port, pssl=self.default_ldap_port_ssl),
         )
 
         ldap_group.add_argument(
-            '-S', '--ssl', dest='ssl', action="store_true",
-            help="Using ldaps:// instead of ldap://."
+            "-S",
+            "--ssl",
+            dest="ssl",
+            action="store_true",
+            help="Using ldaps:// instead of ldap://.",
         )
 
         ldap_group.add_argument(
-            '--no-ssl-verify', dest='ssl_no_verify', action="store_true",
-            help=("Disable the cert verify if ssl has been enabled. "
-                "Default is to require the cert verify."),
+            "--no-ssl-verify",
+            dest="ssl_no_verify",
+            action="store_true",
+            help=(
+                "Disable the cert verify if ssl has been enabled. "
+                "Default is to require the cert verify."
+            ),
         )
 
         ldap_group.add_argument(
-            '-T', '--timeout', dest="timeout", type=int,
-            help=("The timeout in seconds for all LDAP operations. "
-                "Default: {} seconds.").format(self.ldap_timeout),
+            "-T",
+            "--timeout",
+            dest="timeout",
+            type=int,
+            help=(
+                "The timeout in seconds for all LDAP operations. " "Default: {} seconds."
+            ).format(self.ldap_timeout),
         )
 
         ldap_group.add_argument(
-            '-D', '--bind-dn', dest='bind_dn', required=True,
+            "-D",
+            "--bind-dn",
+            dest="bind_dn",
+            required=True,
             help="The DN of the user to use to connect to the LDAP server.",
         )
 
@@ -369,49 +390,67 @@ class Check389dsReplicatsApp(object):
         pwgroup = ldap_group.add_mutually_exclusive_group(required=True)
 
         pwgroup.add_argument(
-            '-W', '--password', dest='password',
+            "-W",
+            "--password",
+            dest="password",
             help="The password of the user to connect to the LDAP server.",
         )
 
         pwgroup.add_argument(
-            '-y', '--password-file', dest='password_file', type=pathlib.Path,
-            help=("A path to an existing file containing the password "
-                "of the user to connect to the LDAP server."),
+            "-y",
+            "--password-file",
+            dest="password_file",
+            type=pathlib.Path,
+            help=(
+                "A path to an existing file containing the password "
+                "of the user to connect to the LDAP server."
+            ),
         )
 
-        filter_group = self.arg_parser.add_argument_group('Filter options')
+        filter_group = self.arg_parser.add_argument_group("Filter options")
 
         filter_group.add_argument(
-            '-i', '--ignore-state', action='append', dest='ignore_states', type=int,
-            help='Ignore the defined Replica status and handle it as OK',
+            "-i",
+            "--ignore-state",
+            action="append",
+            dest="ignore_states",
+            type=int,
+            help="Ignore the defined Replica status and handle it as OK",
         )
 
-        general_group = self.arg_parser.add_argument_group('General_options')
+        general_group = self.arg_parser.add_argument_group("General_options")
 
         general_group.add_argument(
-            "-v", "--verbose", action="count", dest='verbose',
-            help='Increase the verbosity level',
+            "-v",
+            "--verbose",
+            action="count",
+            dest="verbose",
+            help="Increase the verbosity level",
         )
 
         general_group.add_argument(
-            "-h", "--help", action='help', dest='help',
-            help='Show this help message and exit.'
+            "-h", "--help", action="help", dest="help", help="Show this help message and exit."
         )
 
         general_group.add_argument(
-            "--usage", action='store_true', dest='usage',
-            help="Display brief usage message and exit."
+            "--usage",
+            action="store_true",
+            dest="usage",
+            help="Display brief usage message and exit.",
         )
 
         v_msg = "Version of %(prog)s: {}".format(self.version)
         general_group.add_argument(
-            "-V", '--version', action='version', version=v_msg,
-            help="Show program's version number and exit."
+            "-V",
+            "--version",
+            action="version",
+            version=v_msg,
+            help="Show program's version number and exit.",
         )
 
     # -------------------------------------------------------------------------
     def perform_arg_parser(self):
-
+        """Evaluate the given command line options."""
         self.args = self.arg_parser.parse_args()
 
         if self.args.usage:
@@ -450,33 +489,32 @@ class Check389dsReplicatsApp(object):
 
     # -------------------------------------------------------------------------
     def nagios_exit(self, status_code, status_msg):
-
+        """Leave the application with a defined returncode and a correct message on STDOUT."""
         if status_code not in self.error_codes:
             ocode = status_code
             status_code = 3
-            status_msg += ' (Unknown status code {})'.format(ocode)
+            status_msg += " (Unknown status code {})".format(ocode)
 
         status_name = self.error_codes[status_code]
 
-        msg = "{sn} - {app}: {msg}".format(
-                sn=status_name, app=self.appname, msg=status_msg)
+        msg = "{sn} - {app}: {msg}".format(sn=status_name, app=self.appname, msg=status_msg)
         print(msg)
         sys.exit(status_code)
 
     # -------------------------------------------------------------------------
     def read_pw_file(self, pw_file):
-
+        """Read the password file."""
         if not pw_file.exists():
-            self.nagios_exit(3, 'Password file {!r} does not exists.'.format(str(pw_file)))
+            self.nagios_exit(3, "Password file {!r} does not exists.".format(str(pw_file)))
         if not pw_file.is_file():
-            self.nagios_exit(3, 'Password file {!r} is not a regular file.'.format(str(pw_file)))
+            self.nagios_exit(3, "Password file {!r} is not a regular file.".format(str(pw_file)))
         if not os.access(str(pw_file), os.R_OK):
-            self.nagios_exit(3, 'No read access to password file {!r}.'.format(str(pw_file)))
+            self.nagios_exit(3, "No read access to password file {!r}.".format(str(pw_file)))
 
-        re_pw = re.compile(r'^\s*(\S(?:.*\S)?)\s*$')
+        re_pw = re.compile(r"^\s*(\S(?:.*\S)?)\s*$")
 
         pw = None
-        with pw_file.open(encoding='utf-8', errors='surrogateescape') as fh:
+        with pw_file.open(encoding="utf-8", errors="surrogateescape") as fh:
             for line in fh.readlines():
                 match = re_pw.match(line)
                 if match:
@@ -484,7 +522,7 @@ class Check389dsReplicatsApp(object):
                     break
 
         if pw is None:
-            self.nagios_exit(3, 'Did not found a password in file {!r}.'.format(str(pw_file)))
+            self.nagios_exit(3, "Did not found a password in file {!r}.".format(str(pw_file)))
 
         return pw
 
@@ -492,12 +530,12 @@ class Check389dsReplicatsApp(object):
     def init_logging(self):
         """
         Initialize the logger object.
+
         It creates a colored loghandler with all output to STDERR.
         Maybe overridden in descendant classes.
 
         @return: None
         """
-
         log_level = logging.INFO
         if self.verbose:
             log_level = logging.DEBUG
@@ -506,16 +544,16 @@ class Check389dsReplicatsApp(object):
         root_logger.setLevel(log_level)
 
         # create formatter
-        format_str = ''
+        format_str = ""
         if self.verbose:
-            format_str = '[%(asctime)s]: '
-        format_str += self.appname + ': '
+            format_str = "[%(asctime)s]: "
+        format_str += self.appname + ": "
         if self.verbose:
             if self.verbose > 1:
-                format_str += '%(name)s(%(lineno)d) %(funcName)s() '
+                format_str += "%(name)s(%(lineno)d) %(funcName)s() "
             else:
-                format_str += '%(name)s '
-        format_str += '%(levelname)s - %(message)s'
+                format_str += "%(name)s "
+        format_str += "%(levelname)s - %(message)s"
         formatter = logging.Formatter(format_str)
 
         # create log handler for console output
@@ -529,24 +567,34 @@ class Check389dsReplicatsApp(object):
 
     # -------------------------------------------------------------------------
     def __call__(self):
+        """Execute the main routine by this magic method."""
         return self.run()
 
     # -------------------------------------------------------------------------
     def init_ldap(self):
-
+        """Initialise LDAP server object and LDAP connection."""
         # Init Tls object
         tls = Tls(validate=self.ldap_ssl_verify)
 
         # Init LDAP Server object
         ldap_server = Server(
-            self.host, port=self.ldap_port, use_ssl=self.ldap_use_ssl,
-            tls = tls, mode=IP_V4_PREFERRED, connect_timeout=self.ldap_timeout)
+            self.host,
+            port=self.ldap_port,
+            use_ssl=self.ldap_use_ssl,
+            tls=tls,
+            mode=IP_V4_PREFERRED,
+            connect_timeout=self.ldap_timeout,
+        )
 
         # Init LDAP connection object
         self.ldap = Connection(
-            ldap_server, user=self.bind_dn, password=self.bind_pw,
-            auto_bind=AUTO_BIND_NONE, lazy=True, auto_range=True,
-            raise_exceptions=True
+            ldap_server,
+            user=self.bind_dn,
+            password=self.bind_pw,
+            auto_bind=AUTO_BIND_NONE,
+            lazy=True,
+            auto_range=True,
+            raise_exceptions=True,
         )
 
         if self.verbose > 2:
@@ -554,7 +602,7 @@ class Check389dsReplicatsApp(object):
 
     # -------------------------------------------------------------------------
     def pre_run(self):
-
+        """Initialise LDAP before execute the main routine."""
         self.init_ldap()
 
         LOG.debug("Binding local address for LDAP requests ...")
@@ -566,46 +614,53 @@ class Check389dsReplicatsApp(object):
             self.exit(1)
 
     # -------------------------------------------------------------------------
-    def ldap_search(self, obj_classes=None, query_filter='', dn=None, scope=SUBTREE, attributes=ALL_ATTRIBUTES):
-
+    def ldap_search(
+        self,
+        obj_classes=None,
+        query_filter="",
+        dn=None,
+        scope=SUBTREE,
+        attributes=ALL_ATTRIBUTES,
+    ):
+        """Execute a LDAP query with some with some predefined, but overridable options."""
         if not obj_classes:
-            obj_classes = ['*']
+            obj_classes = ["*"]
         elif not isinstance(obj_classes, list):
             obj_classes = [obj_classes]
 
         oc_filter_list = []
         for oc in obj_classes:
-            oc_filter_list.append('(objectClass={})'.format(oc))
-        oc_filter = ''
+            oc_filter_list.append("(objectClass={})".format(oc))
+        oc_filter = ""
         if len(oc_filter_list) == 1:
             oc_filter = oc_filter_list[0]
         else:
-            oc_filter = '(|' + ''.join(oc_filter_list) + ')'
+            oc_filter = "(|" + "".join(oc_filter_list) + ")"
 
         used_filter = oc_filter
         if query_filter:
-            used_filter = '(& ' + oc_filter + ' ' + query_filter + ' )'
+            used_filter = "(& " + oc_filter + " " + query_filter + " )"
 
         if dn is None:
             dn = self.ldap_base_dn
 
         if self.verbose > 1:
-            msg = 'Searching:\n'
-            msg += '  Filter:      {}\n'.format(used_filter)
-            msg += '  Search base: {}\n'.format(dn)
-            msg += '  Attributes:  {}'.format(pp(attributes))
+            msg = "Searching:\n"
+            msg += "  Filter:      {}\n".format(used_filter)
+            msg += "  Search base: {}\n".format(dn)
+            msg += "  Attributes:  {}".format(pp(attributes))
             LOG.debug(msg)
 
         self.ldap.search(dn, used_filter, search_scope=scope, attributes=attributes)
-        #entries = self.ldap.entries
+
         entries = []
         for entry in self.ldap.entries:
             e = {}
-            e['entry_dn'] = entry.entry_dn
+            e["entry_dn"] = entry.entry_dn
             for attr in entry:
                 key = attr.key
-                if key.lower() == 'objectclass':
-                    e['objectClass'] = attr.values
+                if key.lower() == "objectclass":
+                    e["objectClass"] = attr.values
                 else:
                     e[key] = attr.values
             entries.append(e)
@@ -617,12 +672,7 @@ class Check389dsReplicatsApp(object):
 
     # -------------------------------------------------------------------------
     def post_run(self):
-        """
-        Dummy function to run after the main routine.
-        Could be overwritten by descendant classes.
-
-        """
-
+        """Execute some stuff after running the main routine."""
         if self.verbose > 1:
             LOG.debug("executing post_run() ...")
 
@@ -633,7 +683,7 @@ class Check389dsReplicatsApp(object):
 
     # -------------------------------------------------------------------------
     def explore(self):
-
+        """Try to explore the state of the application agreements."""
         LOG.debug("Trying to explore the state of the application agreements ...")
 
         agreement_class = "nsDS5ReplicationAgreement"
@@ -643,34 +693,34 @@ class Check389dsReplicatsApp(object):
         msgs = []
         total_status = []
 
-        re_status = re.compile(r'^[^\(]*\((-?\d+)\)')
+        re_status = re.compile(r"^[^\(]*\((-?\d+)\)")
 
         for entry in entries:
             e = {}
             for key in entry:
-                if key.lower() == 'nsds5replicalastupdatestatusjson':
+                if key.lower() == "nsds5replicalastupdatestatusjson":
                     for val in entry[key]:
-                        e['last_update_status_data'] = json.loads(val)
+                        e["last_update_status_data"] = json.loads(val)
                         break
-                elif key.lower() == 'nsds5replicahost':
-                    e['replica_host'] = entry[key][0]
-                elif key.lower() == 'nsds5replicalastupdatestatus':
-                    e['last_update_status'] = entry[key][0]
-                elif key.lower() == 'nsds5replicalastupdatestart':
-                    e['last_update_start'] = entry[key][0]
-                elif key.lower() == 'nsds5replicalastupdateend':
-                    e['last_update_end'] = entry[key][0]
+                elif key.lower() == "nsds5replicahost":
+                    e["replica_host"] = entry[key][0]
+                elif key.lower() == "nsds5replicalastupdatestatus":
+                    e["last_update_status"] = entry[key][0]
+                elif key.lower() == "nsds5replicalastupdatestart":
+                    e["last_update_start"] = entry[key][0]
+                elif key.lower() == "nsds5replicalastupdateend":
+                    e["last_update_end"] = entry[key][0]
 
             statuscode = None
-            if 'last_update_status_data' in e:
-                data = e['last_update_status_data']
-                statuscode = int(data['repl_rc'])
+            if "last_update_status_data" in e:
+                data = e["last_update_status_data"]
+                statuscode = int(data["repl_rc"])
             else:
-                match = re_status.match(e['last_update_status'])
+                match = re_status.match(e["last_update_status"])
                 if match:
                     statuscode = int(match.group(1))
             LOG.debug("Found status code {}".format(statuscode))
-            e['status_code'] = statuscode
+            e["status_code"] = statuscode
 
             if statuscode in self.ignore_states:
                 total_status.append(0)
@@ -679,12 +729,13 @@ class Check389dsReplicatsApp(object):
 
             results.append(e)
 
-            dt = e['last_update_start'].isoformat(' ', 'seconds')
+            dt = e["last_update_start"].isoformat(" ", "seconds")
             msg = "Replication to {host}, Last Operation {lo}, Status: {st}.".format(
-                    host=e['replica_host'], lo=dt, st=e['last_update_status'])
+                host=e["replica_host"], lo=dt, st=e["last_update_status"]
+            )
             msgs.append(msg)
 
-        self.status_msg = '\n'.join(msgs) or 'No Replication information has been discovered'
+        self.status_msg = "\n".join(msgs) or "No Replication information has been discovered"
         self.status_code = max(total_status or [3])
 
         if self.verbose > 1:
@@ -692,14 +743,14 @@ class Check389dsReplicatsApp(object):
 
     # -------------------------------------------------------------------------
     def run(self):
-
+        """Run the checkscript after initialization."""
         LOG.debug("And here wo go ...")
 
         self.pre_run()
 
         try:
             self.explore()
-        except Exception as e:
+        except LDAPException as e:
             self.handle_error(str(e), e.__class__.__name__, True)
             msg = "Got a {cl} - {e}".format(cl=e.__class__.__name__, e=e)
             app.nagios_exit(3, msg)
