@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8; py-indent-offset: 4 -*-
 """
-@summary: Script for checking, whether a given IP address or hostname is blacklisted somewhere
+@summary: This module provides a script for blacklist checking.
+
+It looks, whether a given IP address or hostname is blacklisted somewhere.
 
 @author: Frank Brehm
 @contact: frank@brehm-online.com
 @license: GPL3+
-@copyright: © 2024 Frank Brehm, Berlin
+@copyright: © 2024 - 2026 Frank Brehm, Berlin
 """
 from __future__ import print_function
 
-
 import argparse
+import concurrent.futures
 import copy
 import errno
 import ipaddress
@@ -25,12 +27,9 @@ import socket
 import sys
 import textwrap
 import timeit
-
 from pathlib import Path
 
-import concurrent.futures
-
-__version__ = '0.4.0'
+__version__ = '0.5.0'
 __author__ = 'Frank Brehm <frank@brehm-online.com>'
 
 MAX_TIMEOUT = 30
@@ -104,7 +103,6 @@ class RequestTimeoutError(MonitoringError, IOError):
     # -------------------------------------------------------------------------
     def __init__(self, timeout, host):
         """Initialize the RequestTimeoutError object."""
-
         strerror = "Error requesting address of {!r}".format(host)
 
         t_o = None
@@ -151,13 +149,15 @@ class ListFileOptionAction(argparse.Action):
 
 # =============================================================================
 def constant(f):
-
+    """Wrap a function for defining a constant."""
     # -----------------------------------------------------------
     def fset(self, value):
+        """Try to set the value of the constant - but without success."""
         raise SyntaxError('Constants may not changed.')
 
     # -----------------------------------------------------------
     def fget(self):
+        """Return the return value of the wrapped function."""
         return f()
 
     # -----------------------------------------------------------
@@ -201,12 +201,11 @@ state = _State()
 # =============================================================================
 def pp(value, indent=4, width=150, depth=None):
     """
-    Returns a pretty print string of the given value.
+    Return a pretty print string of the given value.
 
     @return: pretty print string
     @rtype: str
     """
-
     pretty_printer = pprint.PrettyPrinter(
         indent=indent, width=width, depth=depth)
     return pretty_printer.pformat(value)
@@ -271,6 +270,7 @@ class TimeoutOptionAction(argparse.Action):
 class CheckRblListsApp(object):
     """
     Class for the check-rbl-lists application.
+
     Checks, whther a given hos is listed in one or more Domain Name System blocklists.
     """
 
@@ -285,7 +285,7 @@ class CheckRblListsApp(object):
     # -------------------------------------------------------------------------
     @classmethod
     def get_generic_appname(cls, appname=None):
-
+        """Get the base name of the currently running application."""
         if appname:
             v = str(appname).strip()
             if v:
@@ -313,7 +313,7 @@ class CheckRblListsApp(object):
         self.blacklists = []
         self.records2check = []
         self.host2check = None
-        self.ip2check= None
+        self.ip2check = None
         self.ip_reverse = None
 
         self.count_checkings = 0
@@ -329,8 +329,7 @@ class CheckRblListsApp(object):
 
     # -------------------------------------------------------------------------
     def init_arg_parser(self):
-        """Method to initiate the argument parser."""
-
+        """Initiate the argument parser."""
         self.arg_parser = argparse.ArgumentParser(
             prog=self.appname, description=self.description, add_help=False)
 
@@ -409,10 +408,7 @@ class CheckRblListsApp(object):
 
     # -------------------------------------------------------------------------
     def perform_arg_parser(self):
-        """
-        Method for parsing arguments.
-        """
-
+        """Evaluate command line arguments."""
         self.args = self.arg_parser.parse_args()
 
         if self.args.usage:
@@ -436,7 +432,7 @@ class CheckRblListsApp(object):
 
     # -------------------------------------------------------------------------
     def read_rbl_server_list(self):
-        """Reading the file with the list of the RBL servers."""
+        """Read the file with the list of the RBL servers."""
         if not self.listfile.exists():
             raise RuntimeError('File {!r} not found.'.format(str(self.listfile)))
 
@@ -487,7 +483,7 @@ class CheckRblListsApp(object):
     # -------------------------------------------------------------------------
     def to_ipaddress(self, value):
         """
-        Trying to convert the given value to an ipaddress object.
+        Try to convert the given value to an ipaddress object.
 
         If not successful, None will be returned.
         """
@@ -501,11 +497,10 @@ class CheckRblListsApp(object):
     # -------------------------------------------------------------------------
     def get_address_of_host(self, host, use_timeout=True, only_ipv4=True):
         """
-        Trying to get the IP address of the given hostname.
+        Try to get the IP address of the given hostname.
 
         It returns the found addresses as a list of ipaddress objects.
         """
-
         addresses = []
 
         def request_alarm_caller(signum, sigframe):
@@ -534,11 +529,11 @@ class CheckRblListsApp(object):
     def init_logging(self):
         """
         Initialize the logger object.
+
         It creates a loghandler with all output to STDERR.
 
         @return: None
         """
-
         log_level = logging.WARN
         if self.verbose:
             if self.verbose > 1:
@@ -634,7 +629,7 @@ class CheckRblListsApp(object):
 
     # -------------------------------------------------------------------------
     def get_rbl_entries(self):
-
+        """Pull the RBL entries in parallel."""
         results = {}
         future_to_addr_rec = {}
 
@@ -702,7 +697,5 @@ if __name__ == '__main__':
     app()
 
     sys.exit(0)
-
-
 
 # vim: filetype=python list
