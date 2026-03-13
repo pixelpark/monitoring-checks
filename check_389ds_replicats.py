@@ -131,6 +131,7 @@ class Check389dsReplicatsApp(object):
         self.bind_pw = None
         self.status_code = 3
         self.status_msg = 'wtf?!?'
+        self.ignore_states = [0]
         self.ldap_use_ssl = self.default_ldap_use_ssl
         self.ldap_ssl_verify = self.default_ldap_ssl_verify
         self.ldap_port = self.default_ldap_port
@@ -378,6 +379,13 @@ class Check389dsReplicatsApp(object):
                 "of the user to connect to the LDAP server."),
         )
 
+        filter_group = self.arg_parser.add_argument_group('Filter options')
+
+        filter_group.add_argument(
+            '-i', '--ignore-state', action='append', dest='ignore_states', type=int,
+            help='Ignore the defined Replica status and handle it as OK',
+        )
+
         general_group = self.arg_parser.add_argument_group('General_options')
 
         general_group.add_argument(
@@ -436,6 +444,9 @@ class Check389dsReplicatsApp(object):
         else:
             self.arg_parser.print_usage(sys.stderr)
             self.exit(1)
+
+        if self.args.ignore_states:
+            self.ignore_states += self.args.ignore_states
 
     # -------------------------------------------------------------------------
     def nagios_exit(self, status_code, status_msg):
@@ -661,7 +672,7 @@ class Check389dsReplicatsApp(object):
             LOG.debug("Found status code {}".format(statuscode))
             e['status_code'] = statuscode
 
-            if statuscode == 0:
+            if statuscode in self.ignore_states:
                 total_status.append(0)
             else:
                 total_status.append(2)
