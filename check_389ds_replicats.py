@@ -3,10 +3,10 @@
 """
 @summary: Monitoring script for checking the status of a 389ds LDAP server replica.
 
-@author:: Frank Brehm
+@author: Frank Brehm
 @contact: frank@brehm-online.com
 
-@copyright: © 2026 Frank Brehm, Berlin, Germany, 2021
+@copyright: © 2021 - 2026 Frank Brehm, Berlin, Germany
 @date:   2026-03-13
 
 By an idea of: Emmanuel BUU <emmanuel.buu@ives.fr> (c) IVèS
