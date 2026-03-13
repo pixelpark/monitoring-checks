@@ -419,7 +419,7 @@ class CheckPostfixLogPlugin(MonitoringPlugin):
                 self.status_msg = append_txt
 
     # -------------------------------------------------------------------------
-    def exit(self, status=None, message=None, no_status_line=False):        # noqa: A003
+    def exit(self, status=None, message=None, no_status_line=False):  # noqa: A003
         """Exit the app with given status code and status message."""
         if self.pygtail:
             self.pygtail = None
