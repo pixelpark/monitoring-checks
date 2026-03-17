@@ -1,0 +1,86 @@
+[build-system]
+requires = ["flit_core >=3.2,<4"]
+build-backend = "flit_core.buildapi"
+
+[project]
+name = "monitoring-checks"
+authors = [{name = "Frank Brehm", email = "frank@brehm-online.com"}]
+license = {file = "LICENSE.md"}
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Framework :: IPython",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: GNU Lesser General Public License v3 or later (LGPLv3+)",
+    "Natural Language :: English",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Topic :: System :: Monitoring",
+    "Topic :: System :: Systems Administration",
+]
+dynamic = ["version", "description"]
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "semver",
+]
+
+[project.urls]
+Source = "https://github.com/pixelpark/monitoring-checks"
+
+[tool.flit.module]
+name = "monitoring_checks"
+
+[tool.flit.external-data]
+directory = "data"
+
+[project.optional-dependencies]
+development = [
+    "black",
+    "isort",
+]
+
+lint = [
+    "flake8",
+    "pylint",
+    "flake8-blind-except",
+    "flake8-builtins",
+    "flake8-bugbear",
+    "flake8-class-newline",
+    "flake8-comprehensions",
+    "flake8-deprecated",
+    "flake8-docstrings",
+    "flake8-import-order"
+]
+
+testing = [
+    "pytest >= 7.0.0, < 9.0.0",
+]
+
+ldap = [
+    "ldap3",
+]
+
+postfix = [
+    "postfix-logsums",
+]
+
+requests = [
+    "requests",
+    "urllib3",
+]
+
+[tool.black]
+
+line-length = 99
+target-version = ["py39", "py310", "py311", "py312"]
+
+
+# =============================================================================
+# vim: fileencoding=utf-8 filetype=toml tabstop=4 expandtab shiftwidth=4 softtabstop=4 list
