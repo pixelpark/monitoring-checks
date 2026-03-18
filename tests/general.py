@@ -74,6 +74,11 @@ def init_root_logger(verbose=0):
             root_log.setLevel(logging.DEBUG)
 
     appname = os.path.basename(sys.argv[0])
+    if appname.endswith('.py'):
+        ext_index = appname.rindex('.py')
+        if ext_index >= 0:
+            appname = appname[0:ext_index]
+
     format_str = appname + ": "
     if verbose:
         if verbose > 1:

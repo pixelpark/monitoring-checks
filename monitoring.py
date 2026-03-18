@@ -51,8 +51,8 @@ DEFAULT_TERMINAL_WIDTH = 99
 DEFAULT_TERMINAL_HEIGHT = 40
 
 __author__ = "Frank Brehm <frank@brehm-online.com>"
-__copyright__ = "(C) 2023 by Frank Brehm, Berlin"
-__version__ = "0.7.0"
+__copyright__ = "(C) 2026 by Frank Brehm, Berlin"
+__version__ = "0.7.1"
 
 
 # =============================================================================
@@ -343,7 +343,7 @@ class FunctionNotImplementedError(MonitoringPluginError, NotImplementedError):
 
 
 # =============================================================================
-def reverse_rorror_codes(errors):
+def reverse_error_codes(errors):
     """Generate the reversed errors hash for a MonitoringObject."""
     error_codes = {}
 
@@ -373,7 +373,7 @@ class MonitoringObject(object):
         "UNKNOWN": 3,
         "DEPENDENT": 4,
     }
-    error_codes = reverse_rorror_codes(errors)
+    error_codes = reverse_error_codes(errors)
 
     # -------------------------------------------------------------------------
     @property
