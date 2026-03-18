@@ -140,7 +140,7 @@ class MonitoringScriptsTestcase(unittest.TestCase):
                 sys.version_info[1], 8, "Unsupported Python version {}.".format(sys.version)
             )
 
-        if self.verbose >= 2:
+        if self.verbose > 2:
             LOG.debug("Used Phyton version: {!r}.".format(sys.version))
             LOG.debug("Used Phyton include path:\n" + pp(sys.path))
 
