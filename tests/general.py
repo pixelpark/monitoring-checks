@@ -134,6 +134,8 @@ class MonitoringScriptsTestcase(unittest.TestCase):
         appname = os.path.basename(sys.argv[0]).replace(".py", "")
         self._appname = appname
 
+        self.tests_dir = Path(__file__).parent
+
         super(MonitoringScriptsTestcase, self).__init__(methodName)
 
         self.assertGreaterEqual(

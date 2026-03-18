@@ -32,7 +32,7 @@ class TestArgparseActions(MonitoringScriptsTestcase):
             print()
 
     # -------------------------------------------------------------------------
-    def test_directory_option(self):
+    def test_directory_action(self):
         """Test monitoring.DirectoryOptionAction."""
         LOG.info(self.get_method_doc())
 
@@ -69,6 +69,7 @@ class TestArgparseActions(MonitoringScriptsTestcase):
 
         if self.verbose > 1:
             print()
+
         LOG.debug("Testing directories providing good luck ...")
         good_test_dirs = (
             ("/uhu-banane", "--arbitrary-dir"),
@@ -93,6 +94,7 @@ class TestArgparseActions(MonitoringScriptsTestcase):
 
         if self.verbose > 1:
             print()
+
         LOG.debug("Testing directories providing bad luck ...")
         bad_test_dirs = (
             ("uhu-banane", "--arbitrary-dir"),
@@ -114,6 +116,110 @@ class TestArgparseActions(MonitoringScriptsTestcase):
             e = cm.exception
             LOG.debug("{c} raised: {e}".format(c=e.__class__.__name__, e=e))
 
+    # -------------------------------------------------------------------------
+    def test_logfile_action(self):
+        """Test monitoring.LogFileOptionAction."""
+        LOG.info(self.get_method_doc())
+
+        from monitoring import LogFileOptionAction
+
+        parser = argparse.ArgumentParser(
+            prog=self.appname,
+            exit_on_error=False,
+            description="Testing LogFileOptionAction...",
+        )
+
+        parser.add_argument(
+            "--arbitrary-logfile",
+            metavar="FILE",
+            must_exists=False,
+            writeable=False,
+            action=LogFileOptionAction,
+            help="An arbitrary logfile.",
+        )
+
+        parser.add_argument(
+            "--arbitrary-rw-logfile",
+            metavar="FILE",
+            must_exists=False,
+            writeable=True,
+            action=LogFileOptionAction,
+            help="An arbitrary writeable logfile.",
+        )
+
+        parser.add_argument(
+            "--existing-logfile",
+            metavar="FILE",
+            must_exists=True,
+            writeable=False,
+            action=LogFileOptionAction,
+            help="An existing logfile.",
+        )
+
+        parser.add_argument(
+            "--existing-rw-logfile",
+            metavar="FILE",
+            must_exists=True,
+            writeable=True,
+            action=LogFileOptionAction,
+            help="An existing writeable logfile.",
+        )
+
+        if self.verbose > 1:
+            print()
+
+        LOG.debug("Testing logfiles providing good luck ...")
+        good_test_logfiles = (
+            ("/var/log/uhu-banane.log", "--arbitrary-logfile"),
+            ("/bla-blub/uhu-banane.log", "--arbitrary-logfile"),
+            (str(self.tests_dir / "test-new.log"), "--arbitrary-rw-logfile"),
+            ("/var/log/messages", "--existing-logfile"),
+            (str(self.tests_dir / "test.log"), "--existing-rw-logfile"),
+        )
+
+        for test_data in good_test_logfiles:
+            if self.verbose > 1:
+                print()
+            test_file = test_data[0]
+            option = test_data[1]
+            arg = option.replace("--", "", 1).replace("-", "_")
+
+            LOG.debug("Testing {o} => {d!r}".format(o=option, d=test_file))
+
+            args = parser.parse_args([option, test_file])
+            got_file = getattr(args, arg)
+            LOG.debug("Got logfile: {!r}.".format(got_file))
+            self.assertIsInstance(got_file, Path)
+            self.assertEqual(test_file, str(got_file))
+
+        if self.verbose > 1:
+            print()
+
+        LOG.debug("Testing logfiles providing bad luck ...")
+
+        bad_test_logfiles = (
+            ("/dev/null", "--arbitrary-logfile"),
+            ("/bla-blub/uhu-banane.log", "--existing-logfile"),
+            ("/var/log/messages/uhu-banane.log", "--existing-logfile"),
+            ("/var/log/uhu-banane.log", "--existing-logfile"),
+            ("/var/log/messages", "--existing-rw-logfile"),
+            ("/etc/shadow", "--arbitrary-logfile"),
+        )
+
+        for test_data in bad_test_logfiles:
+            if self.verbose > 1:
+                print()
+            test_file = test_data[0]
+            option = test_data[1]
+
+            LOG.debug("Testing {o} => {d!r}".format(o=option, d=test_file))
+
+            with self.assertRaises(argparse.ArgumentError) as cm:
+                args = parser.parse_args([option, test_file])
+                LOG.error("Got parsed arguments: " + pp(args))
+            e = cm.exception
+            LOG.debug("{c} raised: {e}".format(c=e.__class__.__name__, e=e))
+
 
 # =============================================================================
 if __name__ == "__main__":
@@ -127,7 +233,8 @@ if __name__ == "__main__":
 
     suite = unittest.TestSuite()
 
-    suite.addTest(TestArgparseActions("test_directory_option", verbose))
+    suite.addTest(TestArgparseActions("test_directory_action", verbose))
+    suite.addTest(TestArgparseActions("test_logfile_action", verbose))
 
     runner = unittest.TextTestRunner(verbosity=verbose)
 
