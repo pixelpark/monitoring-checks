@@ -22,7 +22,7 @@ LOG = logging.getLogger("test_monitoring_object")
 
 # =============================================================================
 class TestMonitoringObject(MonitoringScriptsTestcase):
-    """Testcase class for testing  monitoring objectof monitoring.py."""
+    """Testcase class for testing  monitoring object of monitoring.py."""
 
     # -------------------------------------------------------------------------
     def setUp(self):

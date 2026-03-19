@@ -23,6 +23,7 @@ import re
 import shutil
 import sys
 import traceback
+from enum import Enum
 from numbers import Number
 from pathlib import Path
 
@@ -52,7 +53,7 @@ DEFAULT_TERMINAL_HEIGHT = 40
 
 __author__ = "Frank Brehm <frank@brehm-online.com>"
 __copyright__ = "(C) 2026 by Frank Brehm, Berlin"
-__version__ = "0.7.1"
+__version__ = "0.8.0"
 
 
 # =============================================================================
@@ -429,6 +430,13 @@ class MonitoringObject(object):
 
 
 # =============================================================================
+class RangeAlertOn(Enum):
+    """Indicate, whether the check value raises an alert, if it is inside or outside the range."""
+    OUTSIDE = 0
+    INSIDE = 1
+
+
+# =============================================================================
 class MonitoringRange(MonitoringObject):
     """Encapsulation of a Nagios range, how used by some Nagios plugins."""
 
@@ -521,9 +529,25 @@ class MonitoringRange(MonitoringObject):
 
     # -----------------------------------------------------------
     @property
+    def start_infinity(self):
+        """Give True, if self.start is None, else False."""
+        if self.start is None:
+            return True
+        return False
+
+    # -----------------------------------------------------------
+    @property
     def end(self):
         """Give the end value of the range, infinite, if None."""
         return self._end
+
+    # -----------------------------------------------------------
+    @property
+    def end_infinity(self):
+        """Give True, if self.end is None, else False."""
+        if self.end is None:
+            return True
+        return False
 
     # -----------------------------------------------------------
     @property
@@ -535,6 +559,19 @@ class MonitoringRange(MonitoringObject):
         if the value to check is outside the range, not inside
         """
         return self._invert_match
+
+    # -----------------------------------------------------------
+    @property
+    def alert_on(self):
+        """
+        Give RangeAlertOn.OUTSIDE, if self.invert_match is False.
+
+        Otherwise it gives RangeAlertOn.INSIDE.
+        """
+        if self.invert_match:
+            return RangeAlertOn.INSIDE
+        else:
+            return RangeAlertOn.OUTSIDE
 
     # -----------------------------------------------------------
     @property
@@ -578,23 +615,29 @@ class MonitoringRange(MonitoringObject):
         """
         ret = super(MonitoringRange, self).as_dict()
 
-        ret["start"] = self.start
+        ret["alert_on"] = self.alert_on
         ret["end"] = self.end
+        ret["end_infinity"] = self.end_infinity
         ret["invert_match"] = self.invert_match
         ret["initialized"] = self.initialized
+        ret["range_str"] = str(self)
+        ret["start"] = self.start
+        ret["start_infinity"] = self.start_infinity
 
         return ret
 
     # -------------------------------------------------------------------------
     def __repr__(self):
         """Typecast into a string for reproduction."""
-        out = "<MonitoringRange(start=%r, end=%r, invert_match=%r, initialized=%r)>" % (
-            self.start,
-            self.end,
-            self.invert_match,
-            self.initialized,
-        )
+        out = "<%s(" % (self.__class__.__name__)
 
+        fields = []
+        fields.append("start={!r}".format(self.start))
+        fields.append("end={!r}".format(self.end))
+        fields.append("invert_match={!r}".format(self.invert_match))
+        fields.append("initialized={!r}".format(self.initialized))
+
+        out += ", ".join(fields) + ")>"
         return out
 
     # -------------------------------------------------------------------------
