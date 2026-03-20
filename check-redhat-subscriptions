@@ -13,6 +13,7 @@
 Documentation of the RedHat API: https://access.redhat.com/management/api
 
 """
+
 from __future__ import print_function
 
 # Standard modules
@@ -36,7 +37,6 @@ import requests
 from requests.exceptions import RequestException
 
 import urllib3
-
 
 __version__ = "0.5.0"
 
