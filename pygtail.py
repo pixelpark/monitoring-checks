@@ -40,7 +40,7 @@ import sys
 from os import fstat, stat
 from os.path import exists, getsize
 
-__version__ = '0.16.3'
+__version__ = "0.16.3"
 
 PY3 = sys.version_info[0] == 3
 
@@ -48,7 +48,7 @@ LOG = logging.getLogger(__name__)
 
 
 # ==============================================================================
-def force_text(s, encoding='utf-8', errors='strict'):
+def force_text(s, encoding="utf-8", errors="strict"):
     """Return the given string or byte string as a str object."""
     if isinstance(s, str):
         return s
@@ -123,7 +123,7 @@ class PygtailIteratorWithOffsets:
         return self
 
     # --------------------------------------------------------------------------
-    def next(self):     # noqa: A003
+    def next(self):  # noqa: A003
         """Return the next item from the iterator."""
         next_line = self._pygtail.next()
         offset = self._pygtail._filehandle().tell()
@@ -131,6 +131,7 @@ class PygtailIteratorWithOffsets:
         counter = self._pygtail._counter
         offset_instance = Offset(counter, inode, offset)
         return next_line, offset_instance
+
 
 # ==============================================================================
 class Pygtail(object):
@@ -152,14 +153,26 @@ class Pygtail(object):
                   path or relative to the parent directory of the logfile.
     """
 
-    re_gzipfile = re.compile(r'\.gz$', re.IGNORECASE)
-    re_bzip2file = re.compile(r'\bz(?:ip)?2$', re.IGNORECASE)
-    re_xzfile = re.compile(r'\.xz$', re.IGNORECASE)
+    re_gzipfile = re.compile(r"\.gz$", re.IGNORECASE)
+    re_bzip2file = re.compile(r"\bz(?:ip)?2$", re.IGNORECASE)
+    re_xzfile = re.compile(r"\.xz$", re.IGNORECASE)
 
     # --------------------------------------------------------------------------
-    def __init__(self, filename, offset_file=None, paranoid=False, copytruncate=True,
-                 every_n=0, on_update=False, read_from_end=False, log_patterns=None,
-                 full_lines=False, save_on_end=True, encoding=None, olddir=None):
+    def __init__(
+        self,
+        filename,
+        offset_file=None,
+        paranoid=False,
+        copytruncate=True,
+        every_n=0,
+        on_update=False,
+        read_from_end=False,
+        log_patterns=None,
+        full_lines=False,
+        save_on_end=True,
+        encoding=None,
+        olddir=None,
+    ):
         """Initialize a Pygtail object."""
         self.filename = filename
         self.paranoid = paranoid
@@ -184,11 +197,12 @@ class Pygtail(object):
         if exists(self.offset_file) and getsize(self.offset_file):
             LOG.debug("Reading offset file {!r} ...".format(self.offset_file))
             offset_fh = open(self.offset_file, "r")
-            (self.offset_file_inode, self.offset) = \
-                [int(line.strip()) for line in offset_fh]
+            self.offset_file_inode, self.offset = [int(line.strip()) for line in offset_fh]
             offset_fh.close()
-            if self.offset_file_inode != stat(self.filename).st_ino or \
-                    stat(self.filename).st_size < self.offset:
+            if (
+                self.offset_file_inode != stat(self.filename).st_ino
+                or stat(self.filename).st_size < self.offset
+            ):
                 # The inode has changed or filesize has reduced so the file
                 # might have been rotated.
                 # Look for the rotated file and process that if we find it.
@@ -214,7 +228,7 @@ class Pygtail(object):
         return self
 
     # --------------------------------------------------------------------------
-    def next(self):     # noqa: A003
+    def next(self):  # noqa: A003
         """Return the next line in the file, updating the offset."""
         try:
             line = self._get_next_line()
@@ -258,7 +272,7 @@ class Pygtail(object):
     # --------------------------------------------------------------------------
     def readlines(self):
         """Read in all unread lines and return them as a list."""
-        return [line for line in self]      # noqa: C416
+        return [line for line in self]  # noqa: C416
 
     # --------------------------------------------------------------------------
     def read(self):
@@ -266,9 +280,9 @@ class Pygtail(object):
         lines = self.readlines()
         if lines:
             try:
-                return ''.join(lines)
+                return "".join(lines)
             except TypeError:
-                return ''.join(force_text(line) for line in lines)
+                return "".join(force_text(line) for line in lines)
         else:
             return None
 
@@ -297,11 +311,11 @@ class Pygtail(object):
             filename = self.rotated_logfile or self.filename
             LOG.debug("Reading logfile {!r} ...".format(filename))
             if self.re_gzipfile.search(filename):
-                self.fh = gzip.open(filename, 'r')
+                self.fh = gzip.open(filename, "r")
             elif self.re_bzip2file.search(filename):
-                self.fh = bz2.open(filename, 'r')
+                self.fh = bz2.open(filename, "r")
             elif self.re_xzfile.search(filename):
-                self.fh = lzma.open(filename, 'r')
+                self.fh = lzma.open(filename, "r")
             elif PY3:
                 self.fh = open(filename, "r", 1, encoding=self.encoding)
             else:
@@ -356,10 +370,12 @@ class Pygtail(object):
                 if self.copytruncate:
                     return rotated_filename
                 else:
-                    LOG.warn((
-                        "The file size of {f!r} shrank, and copytruncate support is "
-                        "disabled (expected at least {e} bytes, was {w} bytes.").format(
-                        f=self.filename, e=self.offset, w=stat(self.filename).st_size))
+                    LOG.warn(
+                        (
+                            "The file size of {f!r} shrank, and copytruncate support is "
+                            "disabled (expected at least {e} bytes, was {w} bytes."
+                        ).format(f=self.filename, e=self.offset, w=stat(self.filename).st_size)
+                    )
 
         return None
 
@@ -370,7 +386,7 @@ class Pygtail(object):
         # the file is prepended as part of rotation
         logdir = os.path.dirname(self.filename)
         log_basename = os.path.basename(self.filename)
-        (log_stem, log_ext) = os.path.splitext(log_basename)
+        log_stem, log_ext = os.path.splitext(log_basename)
 
         # Checking olddir
         olddir = None
@@ -385,10 +401,13 @@ class Pygtail(object):
             olddir = logdir
 
         # savelog(8)
-        candidate = self.filename + '.0'
+        candidate = self.filename + ".0"
         LOG.debug("Searching for logrotate candidate {!r}.".format(candidate))
-        if exists(candidate) and exists(self.filename + '.1.gz') and \
-                (stat(candidate).st_mtime > stat(self.filename + '.1.gz').st_mtime):
+        if (
+            exists(candidate)
+            and exists(self.filename + ".1.gz")
+            and (stat(candidate).st_mtime > stat(self.filename + ".1.gz").st_mtime)
+        ):
             return candidate
 
         # logrotate(8)
@@ -453,16 +472,18 @@ class Pygtail(object):
     # --------------------------------------------------------------------------
     def _is_new_file(self):
         # Processing rotated logfile or at the end of current file which has been renamed
-        return self.rotated_logfile or \
-            self._filehandle().tell() == fstat(self._filehandle().fileno()).st_size and \
-            fstat(self._filehandle().fileno()).st_ino != stat(self.filename).st_ino
+        return (
+            self.rotated_logfile
+            or self._filehandle().tell() == fstat(self._filehandle().fileno()).st_size
+            and fstat(self._filehandle().fileno()).st_ino != stat(self.filename).st_ino
+        )
 
     # --------------------------------------------------------------------------
     def _get_next_line(self):
         curr_offset = self._filehandle().tell()
         line = self._filehandle().readline()
         if self.full_lines:
-            if not line.endswith('\n'):
+            if not line.endswith("\n"):
                 self._filehandle().seek(curr_offset)
                 raise StopIteration
         if not line:
