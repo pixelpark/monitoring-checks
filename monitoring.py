@@ -11,6 +11,7 @@
 @date:      2026-03-13
 
 """
+
 from __future__ import print_function
 
 import argparse
@@ -53,7 +54,7 @@ DEFAULT_TERMINAL_HEIGHT = 40
 
 __author__ = "Frank Brehm <frank@brehm-online.com>"
 __copyright__ = "(C) 2026 by Frank Brehm, Berlin"
-__version__ = "0.8.0"
+__version__ = "0.8.1"
 
 
 # =============================================================================
@@ -143,7 +144,7 @@ class DirectoryOptionAction(argparse.Action):
         if self.writeable:
             self.must_exists = True
 
-        super(DirectoryOptionAction, self).__init__(option_strings=option_strings, *args, **kwargs)
+        super(DirectoryOptionAction, self).__init__(*args, **kwargs, option_strings=option_strings)
 
     # -------------------------------------------------------------------------
     def __call__(self, parser, namespace, given_path, option_string=None):
@@ -183,7 +184,7 @@ class LogFileOptionAction(argparse.Action):
         """Initialise a LogFileOptionAction object."""
         self.must_exists = bool(must_exists)
         self.writeable = bool(writeable)
-        super(LogFileOptionAction, self).__init__(option_strings=option_strings, *args, **kwargs)
+        super(LogFileOptionAction, self).__init__(*args, **kwargs, option_strings=option_strings)
 
     # -------------------------------------------------------------------------
     def __call__(self, parser, namespace, values, option_string=None):
@@ -432,6 +433,7 @@ class MonitoringObject(object):
 # =============================================================================
 class RangeAlertOn(Enum):
     """Indicate, whether the check value raises an alert, if it is inside or outside the range."""
+
     OUTSIDE = 0
     INSIDE = 1
 
@@ -1177,8 +1179,9 @@ class MonitoringPerformance(MonitoringObject):
     @classmethod
     def parse_perfstring(cls, perfstring):
         """
-        Parses the given string with performance output strings and gives
-        back a list of MonitoringPerformance objects from all successful parsed
+        Parse the given string with performance output strings.
+
+        It gives back a list of MonitoringPerformance objects from all successful parsed
         performance output strings.
 
         If there is an error parsing the string - which may consists of
@@ -1194,9 +1197,7 @@ class MonitoringPerformance(MonitoringObject):
 
         @return: list of MonitoringPerformance objects
         @rtype: list
-
         """
-
         ps = perfstring.strip()
         perfs = []
 
@@ -1234,22 +1235,18 @@ class MonitoringPerformance(MonitoringObject):
 
 # =============================================================================
 class MonitoringThreshold(MonitoringObject):
-    """
-    Encapsulation of a Nagios threshold, how used by some Nagios plugins.
-    """
+    """Encapsulation of a Nagios threshold, how used by some Nagios plugins."""
 
     # -------------------------------------------------------------------------
     def __init__(self, warning=None, critical=None):
         """
-        Initialisation of the MonitoringThreshold object.
+        Initialise the MonitoringThreshold object.
 
         @param warning: the warning threshold
         @type warning: str, int, long, float or MonitoringRange
         @param critical: the critical threshold
         @type critical: str, int, long, float or MonitoringRange
-
         """
-
         self._warning = MonitoringRange()
         """
         @ivar: the warning threshold
@@ -1328,8 +1325,7 @@ class MonitoringThreshold(MonitoringObject):
 
     # -------------------------------------------------------------------------
     def __repr__(self):
-        """Typecasting into a string for reproduction."""
-
+        """Typecast into a string for reproduction."""
         out = "<MonitoringThreshold(warning=%r, critical=%r)>" % (self.warning, self.critical)
 
         return out
@@ -1337,22 +1333,20 @@ class MonitoringThreshold(MonitoringObject):
     # -------------------------------------------------------------------------
     def set_thresholds(self, warning=None, critical=None):
         """
-        Re-Initialisation of the MonitoringThreshold object.
+        Re-initialise the MonitoringThreshold object.
 
         @param warning: the warning threshold
         @type warning: str, int, long, float or MonitoringRange
         @param critical: the critical threshold
         @type critical: str, int, long, float or MonitoringRange
-
         """
-
         self.warning = warning
         self.critical = critical
 
     # -------------------------------------------------------------------------
     def get_status(self, values):
         """
-        Checks the given values against the critical and the warning range.
+        Check the given values against the critical and the warning range.
 
         @param values: a list with values to check against the critical
                        and warning range property
@@ -1360,9 +1354,7 @@ class MonitoringThreshold(MonitoringObject):
 
         @return: a nagios state
         @rtype: int
-
         """
-
         if isinstance(values, Number):
             values = [values]
 
@@ -1381,11 +1373,16 @@ class MonitoringThreshold(MonitoringObject):
 
 # =============================================================================
 class MonitoringPlugin(MonitoringObject):
+    """
+    Class for an application object for a monitoring plugin.
+
+    Monitoring plugins are checkscripts for Nagios/Icinga.
+    """
 
     # -------------------------------------------------------------------------
     @classmethod
     def get_generic_appname(cls, appname=None):
-
+        """Get the base name of the currently running monitoring plugin."""
         if appname:
             v = str(appname).strip()
             if v:
@@ -1404,7 +1401,7 @@ class MonitoringPlugin(MonitoringObject):
         description=None,
         initialized=False,
     ):
-
+        """Initialise the MonitoringPlugin object."""
         self._appname = self.get_generic_appname(appname)
         self._version = __version__
         if version:
@@ -1445,13 +1442,13 @@ class MonitoringPlugin(MonitoringObject):
 
     # -------------------------------------------------------------------------
     def post_init(self):
-
+        """Execute some things after initialising the object."""
         self._perform_arg_parser()
         self.init_logging()
 
     # -------------------------------------------------------------------------
     def handle_error(self, error_message=None, exception_name=None, tb=None):
-
+        """Handle an error gracefully."""
         msg = str(error_message).strip()
         if not msg:
             msg = "undefined error."
@@ -1594,19 +1591,17 @@ class MonitoringPlugin(MonitoringObject):
     # -------------------------------------------------------------------------
     def __str__(self):
         """
-        Typecasting function for translating object structure
-        into a string
+        Typecast object structure into a string.
 
         @return: structure as string
         @rtype:  str
         """
-
         return pp(self.as_dict())
 
     # -------------------------------------------------------------------------
     def as_dict(self):
         """
-        Transforms the elements of the object into a dict
+        Transform the elements of the object into a dict.
 
         @param short: don't include local properties in resulting dict.
         @type short: bool
@@ -1636,12 +1631,10 @@ class MonitoringPlugin(MonitoringObject):
     # -------------------------------------------------------------------------
     def _init_arg_parser(self):
         """
-        Local called method to initiate the argument parser.
+        Initiate the argument parser.
 
         @raise PBApplicationError: on some errors
-
         """
-
         self.arg_parser = argparse.ArgumentParser(
             prog=self.appname,
             description=self.description,
@@ -1717,7 +1710,7 @@ class MonitoringPlugin(MonitoringObject):
         max_data=None,
     ):
         """
-        Adding a MonitoringPerformance object to self.perf_data.
+        Add a MonitoringPerformance object to self.perf_data.
 
         @param label: the label of the performance data, mandantory
         @type label: str
@@ -1740,7 +1733,6 @@ class MonitoringPlugin(MonitoringObject):
         @type max_data: Number or None
 
         """
-
         pdata = MonitoringPerformance(
             label=label,
             value=value,
@@ -1772,12 +1764,12 @@ class MonitoringPlugin(MonitoringObject):
     def init_logging(self):
         """
         Initialize the logger object.
+
         It creates a colored loghandler with all output to STDERR.
         Maybe overridden in descendant classes.
 
         @return: None
         """
-
         log_level = logging.INFO
         if self.verbose:
             log_level = logging.DEBUG
@@ -1809,8 +1801,7 @@ class MonitoringPlugin(MonitoringObject):
 
     # -------------------------------------------------------------------------
     def all_perfoutput(self):
-        """Generates a string with all formatted performance data."""
-
+        """Generate a string with all formatted performance data."""
         if not self.perf_data:
             return ""
 
@@ -1818,14 +1809,12 @@ class MonitoringPlugin(MonitoringObject):
 
     # -------------------------------------------------------------------------
     def die(self, message, no_status_line=False):
-        """Exiting with status 'unknown' and without outputting performance data."""
-
+        """Exit with status 'unknown' and without outputting performance data."""
         self.exit(self.status_unknown, message=message, no_status_line=no_status_line)
 
     # -------------------------------------------------------------------------
-    def exit(self, status=None, message=None, no_status_line=False):
+    def exit(self, status=None, message=None, no_status_line=False):  # noqa: A003
         """Exit the current application."""
-
         if status is None:
             status = self.status
         else:
@@ -1896,7 +1885,7 @@ class MonitoringPlugin(MonitoringObject):
         if not self.initialized:
             try:
                 raise MonitoringException("The application is not completely initialized.")
-            except Exception as e:
+            except Exception as e:  # noqa: 1887
                 tb = ""
                 for m in traceback.format_exc():
                     tb += m
@@ -1906,7 +1895,7 @@ class MonitoringPlugin(MonitoringObject):
 
         try:
             self.pre_run()
-        except Exception as e:
+        except Exception as e:  # noqa: 1887
             tb = ""
             for m in traceback.format_exc():
                 tb += m
@@ -1924,7 +1913,7 @@ class MonitoringPlugin(MonitoringObject):
             self.run()
         except MonitoringException as e:
             self.die(str(e), no_status_line=True)
-        except Exception as e:
+        except Exception as e:  # noqa: 1887
             tb = ""
             for m in traceback.format_exc():
                 tb += m
@@ -1936,7 +1925,7 @@ class MonitoringPlugin(MonitoringObject):
             self.post_run()
         except MonitoringException as e:
             self.die(str(e), no_status_line=True)
-        except Exception as e:
+        except Exception as e:  # noqa: 1887
             tb = ""
             for m in traceback.format_exc():
                 tb += m
@@ -1953,11 +1942,11 @@ class MonitoringPlugin(MonitoringObject):
 
         This is a dummy method an could be overwritten by descendant classes.
         """
-
         pass
 
     # -------------------------------------------------------------------------
     def __call__(self):
+        """Call the main run method."""
         return self._run()
 
 
