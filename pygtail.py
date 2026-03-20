@@ -1,94 +1,101 @@
-#!/usr/bin/python -tt
+#!/usr/bin/python3
 # -*- coding: utf-8 -*-
+"""
+@summary: pygtail - a python "port" of logtail2.
 
-# pygtail - a python "port" of logtail2
-# Copyright (C) 2011 Brad Greenlee <brad@footle.org>
-#
-# Derived from logcheck <http://logcheck.org>
-# Copyright (C) 2003 Jonathan Middleton <jjm@ixtab.org.uk>
-# Copyright (C) 2001 Paul Slootman <paul@debian.org>
-#
-# This program is free software; you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation; either version 2 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+@copyright: (C) 2011 Brad Greenlee <brad@footle.org>
+@license: GPL2+
+
+Derived from logcheck <http://logcheck.org>
+Copyright (C) 2003 Jonathan Middleton <jjm@ixtab.org.uk>
+Copyright (C) 2001 Paul Slootman <paul@debian.org>
+
+This program is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 2 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program; if not, write to the Free Software
+Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+
+"""
 
 from __future__ import print_function
 
-from os import fstat, stat
-import os
-from os.path import exists, getsize
-import sys
+import bz2
 import glob
 import gzip
-import bz2
-import lzma
 import io
-import re
 import logging
+import lzma
+import os
+import re
+import sys
+from os import fstat, stat
+from os.path import exists, getsize
 
-__version__ = '0.16.2'
+__version__ = '0.16.3'
 
 PY3 = sys.version_info[0] == 3
-
-if PY3:
-    text_type = str
-else:
-    text_type = unicode                             # noqa
 
 LOG = logging.getLogger(__name__)
 
 
 # ==============================================================================
 def force_text(s, encoding='utf-8', errors='strict'):
-    if isinstance(s, text_type):
+    """Return the given string or byte string as a str object."""
+    if isinstance(s, str):
         return s
     return s.decode(encoding, errors)
 
 
 # ==============================================================================
 class Offset:
-    """Data-class to store file-offsets"""
+    """Data-class to store file-offsets."""
 
     # --------------------------------------------------------------------------
     def __init__(self, counter, inode, offset):
+        """Initialize the Offset object."""
         self.counter = counter
         self.inode = inode
         self.offset = offset
 
     # --------------------------------------------------------------------------
     def __eq__(self, other):
+        """Is a '==' operator."""
         return self.counter == other.counter and self.offset == other.offset
 
     # --------------------------------------------------------------------------
     def __lt__(self, other):
+        """Is a '<' operator."""
         return self.counter < other.counter or (
             self.counter == other.counter and self.offset < other.offset
         )
 
     # --------------------------------------------------------------------------
     def __le__(self, other):
+        """Is a '<=' operator."""
         return self.__lt__(other) or self.__eq__(other)
 
     # --------------------------------------------------------------------------
     def __gt__(self, other):
+        """Is a '>' operator."""
         return not self.__le__(other)
 
     # --------------------------------------------------------------------------
     def __ge__(self, other):
+        """Is a '>=' operator."""
         return not self.__le__(other) or self.__eq__(other)
 
     # --------------------------------------------------------------------------
     def __repr__(self):
+        """Typecast object into a str for reproduction."""
         return "Offset(counter=%d, inode=%d, offset=%d" % (
             self.counter,
             self.inode,
@@ -98,21 +105,26 @@ class Offset:
 
 # ==============================================================================
 class PygtailIteratorWithOffsets:
+    """An iterator class with offsets."""
 
     # --------------------------------------------------------------------------
     def __init__(self, pygtail):
+        """Initialize the PygtailIteratorWithOffsets object."""
         self._pygtail = pygtail
 
     # --------------------------------------------------------------------------
     def __next__(self):
+        """Return the next item from the iterator."""
         return self.next()
 
     # --------------------------------------------------------------------------
     def __iter__(self):
+        """Return the current object an an iterator object itself."""
         return self
 
     # --------------------------------------------------------------------------
-    def next(self):
+    def next(self):     # noqa: A003
+        """Return the next item from the iterator."""
         next_line = self._pygtail.next()
         offset = self._pygtail._filehandle().tell()
         inode = fstat(self._pygtail._filehandle().fileno()).st_ino
@@ -122,8 +134,8 @@ class PygtailIteratorWithOffsets:
 
 # ==============================================================================
 class Pygtail(object):
-    """
-    Creates an iterable object that returns only unread lines.
+    r"""
+    Create an iterable object that returns only unread lines.
 
     Keyword arguments:
     offset_file   File to which offset data is written (default: <logfile>.offset).
@@ -148,6 +160,7 @@ class Pygtail(object):
     def __init__(self, filename, offset_file=None, paranoid=False, copytruncate=True,
                  every_n=0, on_update=False, read_from_end=False, log_patterns=None,
                  full_lines=False, save_on_end=True, encoding=None, olddir=None):
+        """Initialize a Pygtail object."""
         self.filename = filename
         self.paranoid = paranoid
         self.every_n = every_n
@@ -191,18 +204,18 @@ class Pygtail(object):
 
     # --------------------------------------------------------------------------
     def __del__(self):
+        """Delete this object - a destructor. It closes an open filehandle."""
         if self._filehandle():
             self._filehandle().close()
 
     # --------------------------------------------------------------------------
     def __iter__(self):
+        """Return the current object an an iterator object itself."""
         return self
 
     # --------------------------------------------------------------------------
-    def next(self):
-        """
-        Return the next line in the file, updating the offset.
-        """
+    def next(self):     # noqa: A003
+        """Return the next line in the file, updating the offset."""
         try:
             line = self._get_next_line()
         except StopIteration:
@@ -234,26 +247,22 @@ class Pygtail(object):
 
     # --------------------------------------------------------------------------
     def with_offsets(self):
-        """Returns an iterator that yields lines with their internal offset state"""
+        """Return an iterator that yields lines with their internal offset state."""
         return PygtailIteratorWithOffsets(self)
 
     # --------------------------------------------------------------------------
     def __next__(self):
-        """`__next__` is the Python 3 version of `next`"""
+        """`__next__` is the Python 3 version of `next`."""
         return self.next()
 
     # --------------------------------------------------------------------------
     def readlines(self):
-        """
-        Read in all unread lines and return them as a list.
-        """
-        return [line for line in self]
+        """Read in all unread lines and return them as a list."""
+        return [line for line in self]      # noqa: C416
 
     # --------------------------------------------------------------------------
     def read(self):
-        """
-        Read in all unread lines and return them as a single string.
-        """
+        """Read in all unread lines and return them as a single string."""
         lines = self.readlines()
         if lines:
             try:
@@ -279,8 +288,9 @@ class Pygtail(object):
     # --------------------------------------------------------------------------
     def _filehandle(self):
         """
-        Return a filehandle to the file being tailed, with the position set
-        to the current offset.
+        Return a filehandle to the file being tailed.
+
+        The position is set to the current offset.
         """
         if not self.fh or self._is_closed():
             self._counter += 1
@@ -305,9 +315,7 @@ class Pygtail(object):
 
     # --------------------------------------------------------------------------
     def update_offset_file(self):
-        """
-        Update the offset file with the current inode and offset.
-        """
+        """Update the offset file with the current inode and offset."""
         if self.on_update:
             self.on_update()
         LOG.debug("Updating offset file {!r} ...".format(self.offset_file))
@@ -320,7 +328,7 @@ class Pygtail(object):
 
     # --------------------------------------------------------------------------
     def write_offset_to_file(self, offset):
-        """Writes an `Offset` to the offset file"""
+        """Write an `Offset` to the offset file."""
         if self.on_update:
             self.on_update()
         LOG.debug("Writing offset file {!r} ...".format(self.offset_file))
@@ -331,8 +339,9 @@ class Pygtail(object):
     # --------------------------------------------------------------------------
     def _determine_rotated_logfile(self):
         """
-        We suspect the logfile has been rotated, so try to guess what the
-        rotated filename is, and return it.
+        Try to guess what the rotated filename is, and return it.
+
+        Thi is, because we suspect the logfile has been rotated.
         """
         rotated_filename = self._check_rotated_filename_candidates()
         LOG.debug("Checked rotated logfile: {!r}.".format(rotated_filename))
@@ -356,10 +365,7 @@ class Pygtail(object):
 
     # --------------------------------------------------------------------------
     def _check_rotated_filename_candidates(self):
-        """
-        Check for various rotated logfile filename patterns and return the first
-        match we find.
-        """
+        """Check for various rotated logfile filename patterns and return the first match."""
         # break into directory and filename components to support cases where the
         # the file is prepended as part of rotation
         logdir = os.path.dirname(self.filename)
@@ -379,7 +385,7 @@ class Pygtail(object):
             olddir = logdir
 
         # savelog(8)
-        candidate = self.filename  +'.0'
+        candidate = self.filename + '.0'
         LOG.debug("Searching for logrotate candidate {!r}.".format(candidate))
         if exists(candidate) and exists(self.filename + '.1.gz') and \
                 (stat(candidate).st_mtime > stat(self.filename + '.1.gz').st_mtime):
