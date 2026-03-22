@@ -108,5 +108,10 @@ jobs:
           pip install --upgrade --upgrade-strategy eager fb-tools
           echo "::endgroup::"
 
+          if [[ "${{ matrix.python_version }}" =~ (3\.[89]| 3\.10) ]] ; then
+              echo "::group::Install tomli in virtual environment ..."
+              pip install --upgrade --upgrade-strategy eager tomli
+              echo "::endgroup::"
+          fi
 
 # vim: et tabstop=2 expandtab shiftwidth=2 softtabstop=2 list
