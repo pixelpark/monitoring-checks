@@ -108,7 +108,7 @@ jobs:
           pip install --upgrade --upgrade-strategy eager fb-tools
           echo "::endgroup::"
 
-          if [[ "${{ matrix.python_version }}" =~ 3\.([89]|10) ]] ; then
+          if [[ "${{ matrix.python_version }}" =~ 3\.([4-9]|10)$ ]] ; then
               echo "::group::Install tomli in virtual environment ..."
               pip install --upgrade --upgrade-strategy eager tomli
               echo "::endgroup::"
@@ -122,10 +122,13 @@ jobs:
           source .venv/bin/activate
 
           declare -a pkgs=()
+          oifs="${IFS}"
 
+          IFS=$'\n'
           for pkg in $( config-convert pyproject.toml -T json | jq -r .project.dependencies[] ) ; do
               pkgs+=( "${pkg}" )
           done
+          IFS="${oifs}"
 
           if [[ "${#pkgs[*]}" -ge 1 ]] ; then
               echo "Mandatory Python packages: ${pkgs}"
@@ -139,6 +142,50 @@ jobs:
               eval ${cmd}
           else
               echo "Did not found any mandatory packages."
+          fi
+
+      - name: "Installing testing Pip packages."
+        id: install-testing-pip-packages
+        shell: bash
+        run: |
+          echo "Activating virtual environment ..."
+          source .venv/bin/activate
+
+          declare -a pkgs=()
+
+          oifs="${IFS}"
+
+          echo "Searching for testing modules ..."
+          found_testing="n"
+          IFS=$'\n'
+          for group in $( config-convert pyproject.toml -T json | jq -r '.project."optional-dependencies" | keys[]' ) ; do
+              if [[ "${group}" == "testing" ]] ; then
+                  found_testing="y"
+                  break
+              fi
+          done
+          IFS="${oifs}"
+
+          if [[ "${found_testing}" == "y" ]] ; then
+              IFS=$'\n'
+              for pkg in $( config-convert pyproject.toml -T json | jq -r ".project.\"optional-dependencies\".\"testing\"[]" ) ; do
+                  pkgs+=( "${pkg}" )
+              done
+              IFS="${oifs}"
+
+              if [[ "${#pkgs[*]}" -ge 1 ]] ; then
+                  echo "Testing Python packages: ${pkgs}"
+                  echo "::group::Install testing packages ..."
+                  cmd="pip install ${PIP_OPTIONS} --upgrade --upgrade-strategy eager"
+                  for pkg in "${pkgs[@]}" ; do
+                      cmd+=" \"${pkg}\""
+                  done
+                  echo "."
+                  echo "Executing: ${cmd}"
+                  eval ${cmd}
+              else
+                  echo "Did not found any testing packages."
+              fi
           fi
 
 
