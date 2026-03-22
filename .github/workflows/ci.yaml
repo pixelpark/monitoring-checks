@@ -188,6 +188,14 @@ jobs:
               fi
           fi
 
+      - name: "Executing Pytest."
+        id: exec-pytest
+        shell: bash
+        run: |
+          echo "Activating virtual environment ..."
+          source .venv/bin/activate
 
+          echo "Executing Pytest ..."
+          pytest --verbose
 
 # vim: et tabstop=2 expandtab shiftwidth=2 softtabstop=2 list
