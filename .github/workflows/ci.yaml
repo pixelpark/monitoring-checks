@@ -101,11 +101,11 @@ jobs:
           source .venv/bin/activate
 
           echo "::group::Update Pip in virtual environment ..."
-          pip install -upgrade --upgrade-strategy eager pip
+          pip install --upgrade --upgrade-strategy eager pip
           echo "::endgroup::"
 
           echo "::group::Install fb-tools in virtual environment ..."
-          pip install -upgrade --upgrade-strategy eager fb-tools
+          pip install --upgrade --upgrade-strategy eager fb-tools
           echo "::endgroup::"
 
 
