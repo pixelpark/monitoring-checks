@@ -73,11 +73,11 @@ jobs:
           apt dist-upgrade --yes
           echo "::endgroup::"
 
-      - name: "Install and execute lsb-release."
+      - name: "Install and execute lsb-release and jq."
         shell: bash
         run: |
-          echo "::group::Installing lsb-release"
-          apt install --yes lsb-release || true
+          echo "::group::Installing lsb-release and jq"
+          apt install --yes lsb-release jq || true
           echo "::endgroup::"
           echo "LSB-Release:"
           lsb_release -a
@@ -113,5 +113,34 @@ jobs:
               pip install --upgrade --upgrade-strategy eager tomli
               echo "::endgroup::"
           fi
+
+      - name: "Installing mandatory Pip packages."
+        id: install-mandatory-pip-packages
+        shell: bash
+        run: |
+          echo "Activating virtual environment ..."
+          source .venv/bin/activate
+
+          declare -a pkgs=()
+
+          for pkg in $( config-convert pyproject.toml -T json | jq -r .project.dependencies[] ) ; do
+              pkgs+=( "${pkg}" )
+          done
+
+          if [[ "${#pkgs[*]}" -ge 1 ]] ; then
+              echo "Mandatory Python packages: ${pkgs}"
+              echo "::group::Install mandatory packages ..."
+              cmd="pip install ${PIP_OPTIONS} --upgrade --upgrade-strategy eager"
+              for pkg in "${pkgs[@]}" ; do
+                  cmd+=" \"${pkg}\""
+              done
+              echo "."
+              echo "Executing: ${cmd}"
+              eval ${cmd}
+          else
+              echo "Did not found any mandatory packages."
+          fi
+
+
 
 # vim: et tabstop=2 expandtab shiftwidth=2 softtabstop=2 list
