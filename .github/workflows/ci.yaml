@@ -1,14 +1,25 @@
 ---
+name: ⚒️ CI
+
+##########################################################
 on:
   push:
     branches:
-      - main
-      - master
+      - '**'
+      - '!dev-**'
+      - '!dev/**'
+      - '!hf**'
+      - '!old**'
+      - '!feature**'
+    tags:
+      - '**'
   pull_request:
 
-name: ⚒️ CI
 
+##########################################################
 jobs:
+
+  ###########################
   rubocop:
     name: 'RuboCop'
     runs-on: ubuntu-latest
@@ -20,3 +31,81 @@ jobs:
         bundler-cache: true
     - name: Run tests
       run: bundle exec rubocop -c .rubocop.yml
+
+  ###########################
+  python_tests:
+    name: Executing Python tests
+    strategy:
+      fail-fast: false
+      matrix:
+        python_version: [ "3.8", "3.9", "3.10", "3.11", "3.12", "3.13", "3.14" ]
+    container: python:${{ matrix.python_version }}
+    steps:
+
+      - name: "Checking out sources."
+        uses: actions/checkout@v6
+
+      - name: Show Environment
+        shell: bash
+        run: |
+          echo "::group::Bash enviroment:"
+          env | sort
+          echo "::endgroup::"
+          echo -e "."
+          echo "::notice title=Execute Python tests::Testing Python version: $( python --version )"
+
+      - name: "Update all packages."
+        id: apt-update
+        shell: bash
+        run: |
+          echo "."
+          echo "Apt update ..."
+          apt update --yes
+
+          echo "."
+          echo "::group::Apt list upgradeable ..."
+          apt list --upgradeable
+          echo "::endgroup::"
+
+          echo "."
+          echo "::group::APT dist-upgrade ..."
+          apt dist-upgrade --yes
+          echo "::endgroup::"
+
+      - name: "Install and execute lsb-release."
+        shell: bash
+        run: |
+          echo "::group::Installing lsb-release"
+          apt install --yes lsb-release || true
+          echo "::endgroup::"
+          echo "LSB-Release:"
+          lsb_release -a
+
+      - name: "Creating Python virtual environment."
+        id: create-python-virtenv
+        shell: bash
+        run: |
+          if [[ -d .venv ]] ; then
+              echo "Removing existing virtual env '.venv' ..."
+              rm -rfv .venv
+          fi
+
+          python3 -m venv .venv
+
+      - name: "Update Pip and install fb-tools in virtual environment."
+        id: update-pip
+        shell: bash
+        run: |
+          echo "Activating virtual environment ..."
+          source .venv/bin/activate
+
+          echo "::group::Update Pip in virtual environment ..."
+          pip install -upgrade --upgrade-strategy eager pip
+          echo "::endgroup::"
+
+          echo "::group::Install fb-tools in virtual environment ..."
+          pip install -upgrade --upgrade-strategy eager fb-tools
+          echo "::endgroup::"
+
+
+# vim: et tabstop=2 expandtab shiftwidth=2 softtabstop=2 list
