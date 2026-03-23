@@ -13,6 +13,8 @@ In this test case the argparse actions are tested.
 
 import argparse
 import logging
+import os
+import shutil
 import unittest
 from pathlib import Path
 
@@ -30,6 +32,25 @@ class TestArgparseActions(MonitoringScriptsTestcase):
         """Execute this on seting up before calling each particular test method."""
         if self.verbose >= 1:
             print()
+
+        self.protected_dir = self.tests_dir / ".protected-dir"
+        self.protected_file = self.tests_dir / ".protected-file"
+        self.test_log = self.tests_dir / "test.log"
+
+    # -------------------------------------------------------------------------
+    def tearDown(self):
+        """Tear down routine for calling each particular test method."""
+        if self.protected_dir.exists():
+            if self.verbose > 1:
+                print()
+            LOG.debug(f"Removing {str(self.protected_dir)!r} ...")
+            self.protected_dir.rmdir()
+
+        if self.protected_file.exists():
+            if self.verbose > 1:
+                print()
+            LOG.debug(f"Removing {str(self.protected_file)!r} ...")
+            self.protected_file.unlink()
 
     # -------------------------------------------------------------------------
     def test_directory_action(self):
@@ -95,12 +116,17 @@ class TestArgparseActions(MonitoringScriptsTestcase):
         if self.verbose > 1:
             print()
 
+        LOG.debug(f"Creating {str(self.protected_dir)!r} ...")
+        self.protected_dir.mkdir(mode=0o000)
+
         LOG.debug("Testing directories providing bad luck ...")
-        bad_test_dirs = (
+        bad_test_dirs = [
             ("uhu-banane", "--arbitrary-dir"),
             ("/uhu-banane", "--existing-dir"),
-            ("/etc", "--writable-dir"),
-        )
+        ]
+
+        if os.geteuid() != 0:
+            bad_test_dirs.append((str(self.protected_dir), "--writable-dir"))
 
         for test_data in bad_test_dirs:
             if self.verbose > 1:
@@ -108,8 +134,7 @@ class TestArgparseActions(MonitoringScriptsTestcase):
             test_dir = test_data[0]
             option = test_data[1]
 
-            print(f"Testing bad {option} => {test_dir!r}.")
-            # LOG.debug("Testing {o} => {d!r}".format(o=option, d=test_dir))
+            LOG.debug(f"Testing {option} => {test_dir!r}")
 
             with self.assertRaises(argparse.ArgumentError) as cm:
                 args = parser.parse_args([option, test_dir])
@@ -175,7 +200,7 @@ class TestArgparseActions(MonitoringScriptsTestcase):
             ("/bla-blub/uhu-banane.log", "--arbitrary-logfile"),
             (str(self.tests_dir / "test-new.log"), "--arbitrary-rw-logfile"),
             ("/var/log/messages", "--existing-logfile"),
-            (str(self.tests_dir / "test.log"), "--existing-rw-logfile"),
+            (str(self.test_log), "--existing-rw-logfile"),
         )
 
         for test_data in good_test_logfiles:
@@ -196,19 +221,22 @@ class TestArgparseActions(MonitoringScriptsTestcase):
         if self.verbose > 1:
             print()
 
+        LOG.debug(f"Creating {str(self.protected_file)!r} ...")
+        shutil.copyfile(str(self.test_log), str(self.protected_file))
+        self.protected_file.chmod(0o400)
+
         LOG.debug("Testing logfiles providing bad luck ...")
 
-        print("I'm working as: ", end="", flush=True)
-        id
-
-        bad_test_logfiles = (
+        bad_test_logfiles = [
             ("/dev/null", "--arbitrary-logfile"),
             ("/bla-blub/uhu-banane.log", "--existing-logfile"),
             ("/var/log/messages/uhu-banane.log", "--existing-logfile"),
             ("/var/log/uhu-banane.log", "--existing-logfile"),
-            # ("/var/log/messages", "--existing-rw-logfile"),
-            ("/etc/shadow", "--arbitrary-logfile"),
-        )
+        ]
+
+        if os.geteuid() != 0:
+            bad_test_logfiles.append((str(self.protected_file), "--existing-rw-logfile"))
+            bad_test_logfiles.append(("/etc/shadow", "--arbitrary-logfile"))
 
         for test_data in bad_test_logfiles:
             if self.verbose > 1:
