@@ -1,12 +1,16 @@
 #!/usr/bin/python3
 # -*- coding: utf-8 -*-
-#
-# Author: Frank Brehm <frank@brehm-online.com>
-#         Berlin, Germany, 2024
-# Date:   2024-08-16
-#
-# This module provides DNS resolving of given hostnames and/or addresses
-#
+"""
+@summary: This module provides DNS resolving of given hostnames and/or addresses.
+
+@author:    Frank Brehm
+@contact:   frank@brehm-online.com
+
+@copyright: © 2023 - 2026 Frank Brehm, Berlin, Germany
+@license: GPL3+
+@date:      2026-03-23
+
+"""
 from __future__ import print_function
 
 import argparse
@@ -14,11 +18,12 @@ import copy
 import ipaddress
 import logging
 import os
-import pprint
 import re
-import shutil
 import socket
 import sys
+
+# Own modules
+from monitoring.functions import pp
 
 LOG = logging.getLogger(__name__)
 
@@ -27,34 +32,17 @@ DEFAULT_TERMINAL_HEIGHT = 40
 
 __author__ = 'Frank Brehm <frank@brehm-online.com>'
 __copyright__ = '(C) 2024 by Frank Brehm, Berlin'
-__version__ = '0.1.0'
-
-
-# =============================================================================
-def pp(value, indent=4, width=None, depth=None):
-    """
-    Return a pretty print string of the given value.
-
-    @return: pretty print string
-    @rtype: str
-    """
-
-    if not width:
-        term_size = shutil.get_terminal_size((DEFAULT_TERMINAL_WIDTH, DEFAULT_TERMINAL_HEIGHT))
-        width = term_size.columns
-
-    pretty_printer = pprint.PrettyPrinter(
-        indent=indent, width=width, depth=depth)
-    return pretty_printer.pformat(value)
+__version__ = '0.2.1'
 
 
 # =============================================================================
 class ResolveApplication(object):
+    """An application class for resolving given hostnames into their IPv4 and IPv6 addresses."""
 
     # -------------------------------------------------------------------------
     @classmethod
     def get_generic_appname(cls, appname=None):
-
+        """Get the base name of the currently running monitoring plugin."""
         if appname:
             v = str(appname).strip()
             if v:
@@ -65,7 +53,7 @@ class ResolveApplication(object):
 
     # -------------------------------------------------------------------------
     def __init__(self):
-
+        """Initialise the ResolveApplication object."""
         self._appname = self.get_generic_appname()
         self._version = __version__
         self._verbose = 0
@@ -83,7 +71,7 @@ class ResolveApplication(object):
     # -----------------------------------------------------------
     @property
     def appname(self):
-        """The name of the current running application."""
+        """Give the name of the current running application."""
         if hasattr(self, '_appname'):
             return self._appname
         return os.path.basename(sys.argv[0])
@@ -91,13 +79,13 @@ class ResolveApplication(object):
     # -----------------------------------------------------------
     @property
     def version(self):
-        """The version string of the current object or application."""
+        """Give the version string of the current object or application."""
         return getattr(self, '_version', __version__)
 
     # -----------------------------------------------------------
     @property
     def verbose(self):
-        """The verbosity level."""
+        """Give the verbosity level."""
         return getattr(self, '_verbose', 0)
 
     @verbose.setter
@@ -111,7 +99,7 @@ class ResolveApplication(object):
     # -----------------------------------------------------------
     @property
     def initialized(self):
-        """The initialisation of this object is complete."""
+        """Give the initialisation of this object is complete."""
         return getattr(self, '_initialized', False)
 
     @initialized.setter
@@ -127,19 +115,17 @@ class ResolveApplication(object):
     # -------------------------------------------------------------------------
     def __str__(self):
         """
-        Typecasting function for translating object structure
-        into a string
+        Typecast into a string for translating object structure.
 
         @return: structure as string
         @rtype:  str
         """
-
         return pp(self.as_dict())
 
     # -------------------------------------------------------------------------
     def as_dict(self):
         """
-        Transforms the elements of the object into a dict
+        Transform the elements of the object into a dict.
 
         @param short: don't include local properties in resulting dict.
         @type short: bool
@@ -168,19 +154,13 @@ class ResolveApplication(object):
 
     # -------------------------------------------------------------------------
     def post_init(self):
-
+        """Execute some things after initialising the object."""
         self.perform_arg_parser()
         self.init_logging()
 
     # -------------------------------------------------------------------------
     def init_arg_parser(self):
-        """
-        Local called method to initiate the argument parser.
-
-        @raise PBApplicationError: on some errors
-
-        """
-
+        """Initiate the argument parser."""
         self.arg_parser = argparse.ArgumentParser(
             prog=self.appname,
             description=self.description,
@@ -216,7 +196,7 @@ class ResolveApplication(object):
 
     # -------------------------------------------------------------------------
     def perform_arg_parser(self):
-
+        """Evaluate the command line parameters."""
         self.args = self.arg_parser.parse_args()
 
         if self.args.usage:
@@ -228,14 +208,13 @@ class ResolveApplication(object):
 
     # -------------------------------------------------------------------------
     def init_logging(self):
-        """
-        Initialize the logger object.
+        """Initialize the logger object.
+
         It creates a colored loghandler with all output to STDERR.
         Maybe overridden in descendant classes.
 
         @return: None
         """
-
         log_level = logging.INFO
         if self.verbose:
             log_level = logging.DEBUG
@@ -279,11 +258,12 @@ class ResolveApplication(object):
 
     # -------------------------------------------------------------------------
     def __call__(self):
+        """Call the main run method."""
         return self.run()
 
     # -------------------------------------------------------------------------
     def resolv_token(self, token):
-
+        """Resolve a particuar token."""
         try:
             address = ipaddress.ip_address(token)
         except ValueError:
@@ -293,10 +273,10 @@ class ResolveApplication(object):
 
     # -------------------------------------------------------------------------
     def resolv_name(self, name):
-
+        """Resolve a particuar hostname into the appropriate IPv4 and/or IPv6 address."""
         addresses = []
         flags = socket.AI_CANONNAME
-        fqdn = socket.getfqdn(name)
+        # fqdn = socket.getfqdn(name)
 
         print(' * {}:'.format(name))
         try:
@@ -315,7 +295,7 @@ class ResolveApplication(object):
 
     # -------------------------------------------------------------------------
     def resolv_address(self, address):
-
+        """Resolve a particuar IP address revers into a hostname."""
         print(' * {}:'.format(address))
         sock_addr = (address, 443)
 
