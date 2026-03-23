@@ -367,13 +367,13 @@ jobs:
           oifs="${IFS}"
 
           echo "Collecting Python scripts ..."
-          # file * | grep -i python | awk -F: '{print $1}'
           for script in $( file * | grep -i python | awk -F: '{print $1}' ) ; do
               scripts+=( "${script}" )
           done
           scripts+=( "monitoring" )
           scripts+=( "tests" )
-          echo "Found Python scripts: ${scripts}"
+          echo "Found Python scripts:"
+          ls -l -d "${scripts[@]}"
 
 
 # vim: et tabstop=2 expandtab shiftwidth=2 softtabstop=2 list
