@@ -199,7 +199,7 @@ class TestArgparseActions(MonitoringScriptsTestcase):
             ("/var/log/uhu-banane.log", "--arbitrary-logfile"),
             ("/bla-blub/uhu-banane.log", "--arbitrary-logfile"),
             (str(self.tests_dir / "test-new.log"), "--arbitrary-rw-logfile"),
-            ("/var/log/messages", "--existing-logfile"),
+            (str(self.test_log), "--existing-logfile"),
             (str(self.test_log), "--existing-rw-logfile"),
         )
 
