@@ -220,7 +220,6 @@ class TestMonitoringThreshold(MonitoringScriptsTestcase):
                 self.assertEqual(status_exp, status_got)
 
 
-
 # =============================================================================
 if __name__ == "__main__":
 
