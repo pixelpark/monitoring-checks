@@ -15,6 +15,7 @@ import argparse
 import logging
 import os
 import shutil
+import sys
 import unittest
 from pathlib import Path
 
@@ -53,6 +54,9 @@ class TestArgparseActions(MonitoringScriptsTestcase):
             self.protected_file.unlink()
 
     # -------------------------------------------------------------------------
+    @unittest.skipIf(
+        sys.version_info.major < 3 | sys.version_info.minor < 9, "not supported in Python < 3.9"
+    )
     def test_directory_action(self):
         """Test monitoring.DirectoryOptionAction."""
         LOG.info(self.get_method_doc())
@@ -143,6 +147,9 @@ class TestArgparseActions(MonitoringScriptsTestcase):
             LOG.debug("{c} raised: {e}".format(c=e.__class__.__name__, e=e))
 
     # -------------------------------------------------------------------------
+    @unittest.skipIf(
+        sys.version_info.major < 3 | sys.version_info.minor < 9, "not supported in Python < 3.9"
+    )
     def test_logfile_action(self):
         """Test monitoring.LogFileOptionAction."""
         LOG.info(self.get_method_doc())
