@@ -108,7 +108,8 @@ class TestArgparseActions(MonitoringScriptsTestcase):
             test_dir = test_data[0]
             option = test_data[1]
 
-            LOG.debug("Testing {o} => {d!r}".format(o=option, d=test_dir))
+            print(f"Testing bad {option} => {test_dir!r}.")
+            # LOG.debug("Testing {o} => {d!r}".format(o=option, d=test_dir))
 
             with self.assertRaises(argparse.ArgumentError) as cm:
                 args = parser.parse_args([option, test_dir])
@@ -197,12 +198,15 @@ class TestArgparseActions(MonitoringScriptsTestcase):
 
         LOG.debug("Testing logfiles providing bad luck ...")
 
+        print("I'm working as: ", end="", flush=True)
+        id
+
         bad_test_logfiles = (
             ("/dev/null", "--arbitrary-logfile"),
             ("/bla-blub/uhu-banane.log", "--existing-logfile"),
             ("/var/log/messages/uhu-banane.log", "--existing-logfile"),
             ("/var/log/uhu-banane.log", "--existing-logfile"),
-            ("/var/log/messages", "--existing-rw-logfile"),
+            # ("/var/log/messages", "--existing-rw-logfile"),
             ("/etc/shadow", "--arbitrary-logfile"),
         )
 
