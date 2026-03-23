@@ -154,13 +154,13 @@ class MonitoringScriptsTestcase(unittest.TestCase):
     # -------------------------------------------------------------------------
     @property
     def verbose(self):
-        """The verbosity level."""
+        """Give the verbosity level."""
         return getattr(self, "_verbose", 0)
 
     # -------------------------------------------------------------------------
     @property
     def appname(self):
-        """The name of the current running application."""
+        """Give the name of the current running application."""
         return self._appname
 
     # -------------------------------------------------------------------------

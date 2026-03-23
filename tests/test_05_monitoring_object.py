@@ -13,9 +13,11 @@ In this test case the base monitoring object is tested.
 
 import logging
 import unittest
-from pathlib import Path
 
-from general import MonitoringScriptsTestcase, pp, get_arg_verbose, init_root_logger
+from general import MonitoringScriptsTestcase
+from general import get_arg_verbose
+from general import init_root_logger
+from general import pp
 
 LOG = logging.getLogger("test_monitoring_object")
 

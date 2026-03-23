@@ -13,9 +13,11 @@ In this test case the base monitoring range is tested.
 
 import logging
 import unittest
-from pathlib import Path
 
-from general import MonitoringScriptsTestcase, pp, get_arg_verbose, init_root_logger
+from general import MonitoringScriptsTestcase
+from general import get_arg_verbose
+from general import init_root_logger
+from general import pp
 
 LOG = logging.getLogger("test_monitoring_range")
 
@@ -53,8 +55,8 @@ class TestMonitoringRange(MonitoringScriptsTestcase):
             "1:~",
             "foo",
             "1-10",
-	        "10:~",
-	        "1-10:2.4",
+            "10:~",
+            "1-10:2.4",
             "2:1",
         )
 
@@ -71,50 +73,59 @@ class TestMonitoringRange(MonitoringScriptsTestcase):
             print()
 
         good_init_data = (
-            {"range_str": "6",
-             "end": 6,
-             "end_infinity": False,
+            {
+                "range_str": "6",
+                "end": 6,
+                "end_infinity": False,
             },
-            {"range_str": "-7:23",
-             "start": -7,
-             "start_infinity": False,
-             "end": 23,
-             "end_infinity": False,
+            {
+                "range_str": "-7:23",
+                "start": -7,
+                "start_infinity": False,
+                "end": 23,
+                "end_infinity": False,
             },
-            {"range_str": ":5.75",
-             "end": 5.75,
-             "end_infinity": False,
+            {
+                "range_str": ":5.75",
+                "end": 5.75,
+                "end_infinity": False,
             },
-            {"range_str": "~:-95.99",
-             "start": None,
-             "start_infinity": True,
-             "end": -95.99,
-             "end_infinity": False,
+            {
+                "range_str": "~:-95.99",
+                "start": None,
+                "start_infinity": True,
+                "end": -95.99,
+                "end_infinity": False,
             },
-            {"range_str": "10:",
-             "start": 10,
-             "start_infinity": False,
+            {
+                "range_str": "10:",
+                "start": 10,
+                "start_infinity": False,
             },
-            {"range_str": "123456789012345:",
-             "start": 123456789012345,
-             "start_infinity": False,
+            {
+                "range_str": "123456789012345:",
+                "start": 123456789012345,
+                "start_infinity": False,
             },
-            {"range_str": "~:0",
-             "start": None,
-             "start_infinity": True,
-             "end": 0,
-             "end_infinity": False,
+            {
+                "range_str": "~:0",
+                "start": None,
+                "start_infinity": True,
+                "end": 0,
+                "end_infinity": False,
             },
-            {"range_str": "@0:657.8210567",
-             "end": 657.8210567,
-             "end_infinity": False,
-             "alert_on": INSIDE,
+            {
+                "range_str": "@0:657.8210567",
+                "end": 657.8210567,
+                "end_infinity": False,
+                "alert_on": INSIDE,
             },
-            {"range_str": "1:1",
-             "start": 1,
-             "start_infinity": False,
-             "end": 1,
-             "end_infinity": False,
+            {
+                "range_str": "1:1",
+                "start": 1,
+                "start_infinity": False,
+                "end": 1,
+                "end_infinity": False,
             },
         )
 
@@ -168,4 +179,4 @@ if __name__ == "__main__":
 
 # =============================================================================
 
-# vim: tabstop=4 expandtab shiftwidth=4 softtabstop=4
+# vim: tabstop=4 expandtab shiftwidth=4 softtabstop=4 list
