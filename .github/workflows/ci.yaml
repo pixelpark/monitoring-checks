@@ -186,6 +186,8 @@ jobs:
               else
                   echo "Did not found any testing packages."
               fi
+          else
+              echo "Did not found testing package group."
           fi
 
       - name: "Executing Pytest."
@@ -197,5 +199,161 @@ jobs:
 
           echo "Executing Pytest ..."
           pytest --verbose
+
+  ###########################
+  python_linter:
+    runs-on: ubuntu-latest
+    name: Executing Python Linters
+    container: python:3.14
+    needs:
+      - python_tests
+    steps:
+
+      - name: "Checking out sources."
+        uses: actions/checkout@v6
+
+      - name: Show Environment
+        shell: bash
+        run: |
+          echo "::group::Bash enviroment:"
+          env | sort
+          echo "::endgroup::"
+          echo -e "."
+          echo "::notice title=Execute Python linter checks with Python 3.14"
+
+      - name: "Update all packages."
+        id: apt-update
+        shell: bash
+        run: |
+          echo "."
+          echo "Apt update ..."
+          apt update --yes
+
+          echo "."
+          echo "::group::Apt list upgradeable ..."
+          apt list --upgradeable
+          echo "::endgroup::"
+
+          echo "."
+          echo "::group::APT dist-upgrade ..."
+          apt dist-upgrade --yes
+          echo "::endgroup::"
+
+      - name: "Install and execute lsb-release and jq."
+        shell: bash
+        run: |
+          echo "::group::Installing lsb-release and jq"
+          apt install --yes lsb-release jq || true
+          echo "::endgroup::"
+          echo "LSB-Release:"
+          lsb_release -a
+
+      - name: "Creating Python virtual environment."
+        id: create-python-virtenv
+        shell: bash
+        run: |
+          if [[ -d .venv ]] ; then
+              echo "Removing existing virtual env '.venv' ..."
+              rm -rfv .venv
+          fi
+
+          python3 -m venv .venv
+
+      - name: "Update Pip and install fb-tools in virtual environment."
+        id: update-pip
+        shell: bash
+        run: |
+          echo "Activating virtual environment ..."
+          source .venv/bin/activate
+
+          echo "::group::Update Pip in virtual environment ..."
+          pip install --upgrade --upgrade-strategy eager pip
+          echo "::endgroup::"
+
+          echo "::group::Install fb-tools in virtual environment ..."
+          pip install --upgrade --upgrade-strategy eager fb-tools
+          echo "::endgroup::"
+
+          if [[ "${{ matrix.python_version }}" =~ 3\.([4-9]|10)$ ]] ; then
+              echo "::group::Install tomli in virtual environment ..."
+              pip install --upgrade --upgrade-strategy eager tomli
+              echo "::endgroup::"
+          fi
+
+      - name: "Installing mandatory Pip packages."
+        id: install-mandatory-pip-packages
+        shell: bash
+        run: |
+          echo "Activating virtual environment ..."
+          source .venv/bin/activate
+
+          declare -a pkgs=()
+          oifs="${IFS}"
+
+          IFS=$'\n'
+          for pkg in $( config-convert pyproject.toml -T json | jq -r .project.dependencies[] ) ; do
+              pkgs+=( "${pkg}" )
+          done
+          IFS="${oifs}"
+
+          if [[ "${#pkgs[*]}" -ge 1 ]] ; then
+              echo "Mandatory Python packages: ${pkgs}"
+              echo "::group::Install mandatory packages ..."
+              cmd="pip install ${PIP_OPTIONS} --upgrade --upgrade-strategy eager"
+              for pkg in "${pkgs[@]}" ; do
+                  cmd+=" \"${pkg}\""
+              done
+              echo "."
+              echo "Executing: ${cmd}"
+              eval ${cmd}
+          else
+              echo "Did not found any mandatory packages."
+          fi
+
+      - name: "Installing linter Pip packages."
+        id: install-linter-pip-packages
+        shell: bash
+        run: |
+          echo "Activating virtual environment ..."
+          source .venv/bin/activate
+
+          declare -a pkgs=()
+
+          oifs="${IFS}"
+
+          echo "Searching for linter modules ..."
+          found_lint="n"
+          IFS=$'\n'
+          for group in $( config-convert pyproject.toml -T json | jq -r '.project."optional-dependencies" | keys[]' ) ; do
+              if [[ "${group}" == "lint" ]] ; then
+                  found_lint="y"
+                  break
+              fi
+          done
+          IFS="${oifs}"
+
+          if [[ "${found_lint}" == "y" ]] ; then
+              IFS=$'\n'
+              for pkg in $( config-convert pyproject.toml -T json | jq -r ".project.\"optional-dependencies\".\"lint\"[]" ) ; do
+                  pkgs+=( "${pkg}" )
+              done
+              IFS="${oifs}"
+
+              if [[ "${#pkgs[*]}" -ge 1 ]] ; then
+                  echo "Testing Python packages: ${pkgs}"
+                  echo "::group::Install lint packages ..."
+                  cmd="pip install ${PIP_OPTIONS} --upgrade --upgrade-strategy eager"
+                  for pkg in "${pkgs[@]}" ; do
+                      cmd+=" \"${pkg}\""
+                  done
+                  echo "."
+                  echo "Executing: ${cmd}"
+                  eval ${cmd}
+              else
+                  echo "Did not found any lint packages."
+              fi
+          else
+              echo "Did not found lint package group."
+          fi
 
 # vim: et tabstop=2 expandtab shiftwidth=2 softtabstop=2 list
