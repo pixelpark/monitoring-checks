@@ -239,10 +239,10 @@ jobs:
           apt dist-upgrade --yes
           echo "::endgroup::"
 
-      - name: "Install and execute lsb-release and jq."
+      - name: "Install and execute lsb-release, file, gawk and jq."
         shell: bash
         run: |
-          echo "::group::Installing lsb-release and jq"
+          echo "::group::Installing lsb-release, file, gawk and jq"
           apt install --yes lsb-release jq || true
           echo "::endgroup::"
           echo "LSB-Release:"
@@ -367,6 +367,7 @@ jobs:
           oifs="${IFS}"
 
           echo "Collecting Python scripts ..."
+          file * | grep -i python | awk -F: '{print $1}'
           for script in $( file * | grep -i python | awk -F: '{print $1}' ) ; do
               scripts+=( "${script" )
           done
