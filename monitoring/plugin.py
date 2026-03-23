@@ -28,30 +28,16 @@ DEFAULT_TERMINAL_WIDTH = 99
 DEFAULT_TERMINAL_HEIGHT = 40
 
 # Own modules
-# from .argparse_actions import DirectoryOptionAction
-# from .argparse_actions import LogFileOptionAction
-# from .errors import ApiError
 from .errors import FunctionNotImplementedError
-# from .errors import InvalidRangeError
-# from .errors import InvalidRangeValueError
 from .errors import MonitoringException
-# from .errors import MonitoringPerformanceError
-# from .errors import MonitoringRangeError
-# from .functions import encode_or_bust
-# from .functions import is_sequence
 from .functions import pp
 from .functions import to_bytes
-# from .functions import to_str
-# from .functions import to_unicode
-# from .functions import to_utf8
 from .obj import MonitoringObject
 from .perf import MonitoringPerformance
-# from .range import MonitoringRange
-# from .threshold import MonitoringThreshold
 
 LOG = logging.getLogger(__name__)
 
-__version__ = "0.9.0"
+__version__ = "0.9.1"
 
 
 # =============================================================================
@@ -171,7 +157,7 @@ class MonitoringPlugin(MonitoringObject):
     # -----------------------------------------------------------
     @property
     def appname(self):
-        """The name of the current running application."""
+        """Give the name of the current running application."""
         if hasattr(self, "_appname"):
             return self._appname
         return os.path.basename(sys.argv[0])
@@ -186,13 +172,13 @@ class MonitoringPlugin(MonitoringObject):
     # -----------------------------------------------------------
     @property
     def version(self):
-        """The version string of the current object or application."""
+        """Give the version string of the current object or application."""
         return getattr(self, "_version", __version__)
 
     # -----------------------------------------------------------
     @property
     def verbose(self):
-        """The verbosity level."""
+        """Give the verbosity level."""
         return getattr(self, "_verbose", 0)
 
     @verbose.setter
@@ -206,7 +192,7 @@ class MonitoringPlugin(MonitoringObject):
     # -----------------------------------------------------------
     @property
     def initialized(self):
-        """The initialisation of this object is complete."""
+        """Give the initialisation of this object is complete."""
         return getattr(self, "_initialized", False)
 
     @initialized.setter
@@ -216,7 +202,7 @@ class MonitoringPlugin(MonitoringObject):
     # -----------------------------------------------------------
     @property
     def base_dir(self):
-        """The base directory used for different purposes."""
+        """Give the base directory used for different purposes."""
         return self._base_dir
 
     @base_dir.setter
@@ -242,7 +228,7 @@ class MonitoringPlugin(MonitoringObject):
     # -----------------------------------------------------------
     @property
     def status(self):
-        """The current numeric status of the plugin."""
+        """Give the current numeric status of the plugin."""
         return self._status
 
     @status.setter
@@ -257,7 +243,7 @@ class MonitoringPlugin(MonitoringObject):
     # -----------------------------------------------------------
     @property
     def status_msg(self):
-        """The status message to show on output."""
+        """Give the status message to show on output."""
         return self._status_msg
 
     @status_msg.setter
@@ -363,7 +349,7 @@ class MonitoringPlugin(MonitoringObject):
 
     # -------------------------------------------------------------------------
     def _perform_arg_parser(self):
-
+        """Evaluate the command line parameters."""
         self.args = self.arg_parser.parse_args()
 
         if self.args.usage:
@@ -377,7 +363,7 @@ class MonitoringPlugin(MonitoringObject):
 
     # -------------------------------------------------------------------------
     def perform_arg_parser(self):
-        """Can be overridden ..."""
+        """Evaluate the command line parameters, can be overriddden."""
         pass
 
     # -------------------------------------------------------------------------

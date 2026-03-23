@@ -23,7 +23,7 @@ from .range import MonitoringRange
 
 LOG = logging.getLogger(__name__)
 
-__version__ = "0.9.0"
+__version__ = "0.9.1"
 
 # =============================================================================
 class MonitoringThreshold(MonitoringObject):
@@ -56,7 +56,7 @@ class MonitoringThreshold(MonitoringObject):
     # -----------------------------------------------------------
     @property
     def warning(self):
-        """The warning threshold."""
+        """Give the warning threshold."""
         return self._warning
 
     @warning.setter
@@ -79,7 +79,7 @@ class MonitoringThreshold(MonitoringObject):
     # -----------------------------------------------------------
     @property
     def critical(self):
-        """The critical threshold."""
+        """Give the critical threshold."""
         return self._critical
 
     @critical.setter
