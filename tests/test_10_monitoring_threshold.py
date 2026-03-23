@@ -83,13 +83,13 @@ class TestMonitoringThreshold(MonitoringScriptsTestcase):
         LOG.debug("Test, whether critical is set.")
         self.assertTrue(threshold.critical.is_set)
 
-        LOG.debug(f"Test, whether warning.start == 0.")
+        LOG.debug("Test, whether warning.start == 0.")
         self.assertEqual(threshold.warning.start, 0)
 
         LOG.debug(f"Test, whether warning.end == {warn_value}.")
         self.assertEqual(threshold.warning.end, warn_value)
 
-        LOG.debug(f"Test, whether critical.start == 0.")
+        LOG.debug("Test, whether critical.start == 0.")
         self.assertEqual(threshold.critical.start, 0)
 
         LOG.debug(f"Test, whether critical.end == {crit_value}.")
@@ -116,11 +116,6 @@ class TestMonitoringThreshold(MonitoringScriptsTestcase):
         LOG.info(self.get_method_doc())
 
         from monitoring import MonitoringThreshold
-        from monitoring import MonitoringObject
-
-        ok = MonitoringObject.errors["OK"]
-        warning = MonitoringObject.errors["WARNING"]
-        critical = MonitoringObject.errors["CRITICAL"]
 
         test_data = (
             {
@@ -195,7 +190,7 @@ class TestMonitoringThreshold(MonitoringScriptsTestcase):
         for test_token in test_data:
             if self.verbose >= 1:
                 print()
-                
+
             if "warning" in test_token:
                 w = test_token["warning"]
             else:

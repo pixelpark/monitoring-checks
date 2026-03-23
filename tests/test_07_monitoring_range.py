@@ -164,7 +164,6 @@ class TestMonitoringRange(MonitoringScriptsTestcase):
         LOG.info(self.get_method_doc())
 
         from monitoring.range import MonitoringRange
-        from monitoring.range import RangeAlertOn
 
         mon_range = MonitoringRange("6")
         LOG.debug("Initialized range:\n" + pp(mon_range.as_dict()))
@@ -220,7 +219,6 @@ class TestMonitoringRange(MonitoringScriptsTestcase):
         LOG.info(self.get_method_doc())
 
         from monitoring.range import MonitoringRange
-        from monitoring.range import RangeAlertOn
 
         test_data = (
             (
