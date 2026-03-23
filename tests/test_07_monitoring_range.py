@@ -158,6 +158,184 @@ class TestMonitoringRange(MonitoringScriptsTestcase):
             self.assertEqual(mon_range.end_infinity, test_data["end_infinity"])
             self.assertEqual(mon_range.alert_on, test_data["alert_on"])
 
+    # -------------------------------------------------------------------------
+    def test_operator_in(self):
+        """Test of 'in' and 'not in' operators."""
+        LOG.info(self.get_method_doc())
+
+        from monitoring.range import MonitoringRange
+        from monitoring.range import RangeAlertOn
+
+        mon_range = MonitoringRange("6")
+        LOG.debug("Initialized range:\n" + pp(mon_range.as_dict()))
+
+        test_data = (
+            (-0.1, False),
+            (0, True),
+            (0.1, True),
+            (4, True),
+            (5.99, True),
+            (6, True),
+            (6.01, False),
+        )
+
+        for token in test_data:
+            val = token[0]
+            exp = token[1]
+
+            LOG.debug(f"Test value {val} in range {str(mon_range)!r}: {exp}")
+            if exp:
+                self.assertIn(val, mon_range)
+            else:
+                self.assertNotIn(val, mon_range)
+
+        if self.verbose >= 1:
+            print()
+        mon_range = MonitoringRange("@6")
+        LOG.debug("Initialized inverted range:\n" + pp(mon_range.as_dict()))
+
+        test_data = (
+            (-0.1, True),
+            (0, False),
+            (0.1, False),
+            (4, False),
+            (5.99, False),
+            (6, False),
+            (6.01, True),
+        )
+
+        for token in test_data:
+            val = token[0]
+            exp = token[1]
+
+            LOG.debug(f"Test value {val} outside of range {str(mon_range)!r}: {exp}")
+            if exp:
+                self.assertIn(val, mon_range)
+            else:
+                self.assertNotIn(val, mon_range)
+
+    # -------------------------------------------------------------------------
+    def test_check_value(self):
+        """Test checking different values."""
+        LOG.info(self.get_method_doc())
+
+        from monitoring.range import MonitoringRange
+        from monitoring.range import RangeAlertOn
+
+        test_data = (
+            (
+                "-7:23", (
+                    (-23, False),
+                    (-7, True),
+                    (-1, True),
+                    (0, True),
+                    (4, True),
+                    (23, True),
+                    (23.1, False),
+                    (79.999999, False),
+                ),
+            ),
+            (
+                ":5.75", (
+                    (-1, False),
+                    (0, True),
+                    (4, True),
+                    (5.75, True),
+                    (5.7501, False),
+                    (6, False),
+                ),
+            ),
+            (
+                "~:-95.99", (
+                    (-1001341, True),
+                    (-96, True),
+                    (-95.999, True),
+                    (-95.99, True),
+                    (-95.989, False),
+                    (-95, False),
+                    (0, False),
+                    (5.7501, False),
+                ),
+            ),
+            (
+                "10:", (
+                    (-95.999, False),
+                    (-1, False),
+                    (0, False),
+                    (9.91, False),
+                    (10, True),
+                    (11.11, True),
+                    (123456789012346, True),
+                ),
+            ),
+            (
+                "123456789012345:", (
+                    (-95.999, False),
+                    (0, False),
+                    (123456789012344.91, False),
+                    (123456789012345, True),
+                    (123456789012345.61, True),
+                    (123456789012346, True),
+                ),
+            ),
+            (
+                "~:0", (
+                    (-123456789012344.91, True),
+                    (-1, True),
+                    (0, True),
+                    (.001, False),
+                    (123456789012345, False),
+                ),
+            ),
+            (
+                "@0:657.8210567", (
+                    (-134151, True),
+                    (-1, True),
+                    (0, False),
+                    (.001, False),
+                    (657.8210567, False),
+                    (657.9, True),
+                    (123456789012345, True),
+                ),
+            ),
+            (
+                "1:1", (
+                    (-1, False),
+                    (0, False),
+                    (0.99, False),
+                    (1, True),
+                    (1.001, False),
+                    (5.2, False),
+                ),
+            ),
+        )
+
+        for token in test_data:
+            if self.verbose >= 1:
+                print()
+
+            range_str = token[0]
+            test_tokens = token[1]
+
+            mon_range = MonitoringRange(range_str)
+
+            for test_pair in test_tokens:
+
+                val = test_pair[0]
+                exp = test_pair[1]
+                if exp:
+                    if mon_range.invert_match:
+                        LOG.debug(f"Test value {val} outside of range {str(mon_range)!r}.")
+                    else:
+                        LOG.debug(f"Test value {val} in range {str(mon_range)!r}.")
+                    self.assertIn(val, mon_range)
+                else:
+                    if mon_range.invert_match:
+                        LOG.debug(f"Test value {val} in range {str(mon_range)!r}.")
+                    else:
+                        LOG.debug(f"Test value {val} not in range {str(mon_range)!r}.")
+                    self.assertNotIn(val, mon_range)
+
 
 # =============================================================================
 if __name__ == "__main__":
@@ -172,6 +350,8 @@ if __name__ == "__main__":
     suite = unittest.TestSuite()
 
     suite.addTest(TestMonitoringRange("test_init", verbose))
+    suite.addTest(TestMonitoringRange("test_operator_in", verbose))
+    suite.addTest(TestMonitoringRange("test_check_value", verbose))
 
     runner = unittest.TextTestRunner(verbosity=verbose)
 
