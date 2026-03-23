@@ -35,10 +35,10 @@ class TestMonitoringRange(MonitoringScriptsTestcase):
         """Test init of a monitoring.MonitoringRange."""
         LOG.info(self.get_method_doc())
 
-        from monitoring import MonitoringObject
-        from monitoring import MonitoringRange
-        from monitoring import InvalidRangeError
-        from monitoring import RangeAlertOn
+        from monitoring.errors import InvalidRangeError
+        from monitoring.obj import MonitoringObject
+        from monitoring.range import MonitoringRange
+        from monitoring.range import RangeAlertOn
 
         OUTSIDE = RangeAlertOn.OUTSIDE
         INSIDE = RangeAlertOn.INSIDE

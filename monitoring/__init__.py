@@ -41,7 +41,7 @@ from .obj import MonitoringObject
 from .perf import MonitoringPerformance
 from .plugin import MonitoringPlugin
 from .range import MonitoringRange
-# from .range import RangeAlertOn
+from .range import RangeAlertOn
 from .threshold import MonitoringThreshold
 
 LOG = logging.getLogger(__name__)
@@ -66,6 +66,7 @@ __all__ = [
     "MonitoringRange",
     "MonitoringRangeError",
     "MonitoringThreshold",
+    "RangeAlertOn",
     "encode_or_bust",
     "is_sequence",
     "pp",
