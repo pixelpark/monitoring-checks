@@ -367,9 +367,9 @@ jobs:
           oifs="${IFS}"
 
           echo "Collecting Python scripts ..."
-          file * | grep -i python | awk -F: '{print $1}'
+          # file * | grep -i python | awk -F: '{print $1}'
           for script in $( file * | grep -i python | awk -F: '{print $1}' ) ; do
-              scripts+=( "${script" )
+              scripts+=( "${script}" )
           done
           scripts+=( "monitoring" )
           scripts+=( "tests" )
