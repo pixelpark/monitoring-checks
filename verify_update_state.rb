@@ -19,15 +19,15 @@ id = case history
 
 Tempfile.open do |tempfile|
   tempfile.puts("#{Time.now.utc.strftime('%FT%TZ')} #{check_update_status.exitstatus} #{id}")
-  File.open("/var/lib/dnf/#{File.basename(__FILE__, File.extname(__FILE__))}.log", 'r+', 644) do |file|
-    File.foreach(file) do |line|
+  File.open("/var/lib/dnf/#{File.basename(__FILE__, File.extname(__FILE__))}.log", File::RDWR | File::CREAT, 644) do |file|
+    File.foreach(file).with_index do |line, i|
+      break if i >= 200
+
       tempfile.puts(line)
     end
     file.rewind
     tempfile.rewind
-    File.foreach(tempfile).with_index do |line, i|
-      break if i >= 200
-
+    File.foreach(tempfile) do |line|
       file.puts(line)
     end
     file.truncate(file.pos)
