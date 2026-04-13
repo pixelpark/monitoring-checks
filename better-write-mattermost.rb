@@ -5,6 +5,7 @@ require 'uri'
 require 'json'
 require 'optparse'
 require 'logger'
+require 'digest'
 
 options = {}
 
@@ -20,6 +21,9 @@ options = {}
   NOTIFICATIONCOMMENT
   NOTIFICATIONTYPE
   ICINGA_HOST
+  USERNAME
+  TELEFON
+  CALLERID
   WEBHOOK
 ].each do |key|
   options[key.downcase.to_sym] = ENV.fetch(key) if ENV.include?(key)
@@ -41,7 +45,7 @@ OptionParser.new do |opts|
   opts.on('--state=STATE')                                   { |state|                  options[:state]                  = state.upcase }
   opts.on('--type=TYPE',
           'Really only needed for restart, otherwise it is automatically detected.') { |type| options[:type]             = type.upcase }
-  opts.on('--username=USERNAME')                             { |username|               options[:username]               = username }
+  opts.on('--chat_username=USERNAME')                        { |chat_username|          options[:chat_username]          = chat_username }
   opts.on('--icon_emoji=STRING')                             { |icon_emoji|             options[:icon_emoji]             = icon_emoji }
   opts.on('--debug')                                         { |debug|                  options[:debug]                  = debug }
 end.parse!
@@ -170,6 +174,10 @@ when 'TELEFON'
              else
                ": #{options[:state]}"
              end
+  message += "\n - CallerID: `#{Digest::SHA512.hexdigest(options[:callerid])}`" if options.include?(:callerid)
+  message += "\n - Destination:" if options.include?(:telefon) || options.include?(:username)
+  message += " `#{options[:username]}`" if options.include?(:username)
+  message += " `#{Digest::SHA512.hexdigest(options[:telefon])}`" if options.include?(:telefon)
 when 'RESTART'
   options[:icon_emoji] = ':icinga:' unless options.include?(:icon_emoji)
   message = ":recycle: #{options[:type]} | Restarting Service "
@@ -199,8 +207,8 @@ payload = {
 }
 
 payload[:icon_emoji] = options[:icon_emoji] if options.include?(:icon_emoji) && !options[:icon_emoji].empty?
-payload[:username]   = options[:username] if options.include?(:username) && !options[:username].empty?
-payload[:username]   = options[:icinga_host] if options.include?(:icinga_host) && !payload.include?(:username)
+payload[:chat_username] = options[:chat_username] if options.include?(:chat_username) && !options[:chat_username].empty?
+payload[:chat_username] = options[:icinga_host] if options.include?(:icinga_host) && !payload.include?(:chat_username)
 payload = payload.to_json
 
 begin
