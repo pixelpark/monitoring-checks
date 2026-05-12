@@ -8,7 +8,7 @@ VERBOSE="n"
 DEBUG="n"
 QUIET='n'
 
-VERSION="3.0"
+VERSION="3.1"
 
 # console colors:
 RED=""
@@ -188,7 +188,7 @@ get_options() {
 
     local tmp=
     local short_options="dvqhV"
-    local long_options="debug,verbose,quiet,help,version"
+    local long_options="debug,verbose,quiet,nocolor,help,version"
 
     set +e
     tmp=$( getopt -o "${short_options}" --long "${long_options}" -n "${BASENAME}" -- "$@" )
