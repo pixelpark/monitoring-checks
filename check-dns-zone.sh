@@ -16,7 +16,6 @@ BASENAME=$(basename "${0}" )
 BASE_DIR=$( dirname "$0" )
 cd "${BASE_DIR}"
 BASE_DIR=$( readlink -f . )
-MAN_PARENT_DIR="data/share/man"
 
 # DIG Options
 DNSSEC=
@@ -73,20 +72,22 @@ usage() {
 
 #------------------------------------------------------------------------------
 timespec () {
-    local val=$(echo $1 | tr -d dhm)
+    lorcval val
+
+    val=$(echo "$1" | tr -d dhm)
 
     case $1 in
         *m)
-            echo "$((${val} * 60))"
+            echo "$(( val * 60))"
             ;;
         *h)
-            echo "$((${val} * 60 * 60))"
+            echo "$(( val * 60 * 60 ))"
             ;;
         *d)
-            echo "$((${val} * 60 * 60 * 24))"
+            echo "$(( val * 60 * 60 * 24 ))"
             ;;
         *)
-            echo $1
+            echo "$1"
             ;;
     esac
 }
@@ -97,12 +98,12 @@ seconds2human() {
     local seconds_total="$1"
     local out=""
 
-    local seconds=$(( ${seconds_total} % 60 ))
-    local minutes_total=$(( ${seconds_total} / 60 ))
-    local minutes=$(( ${minutes_total} % 60 ))
-    local hours_total=$(( ${minutes_total} / 60 ))
-    local hours=$(( ${hours_total} % 24 ))
-    local days=$(( ${hours_total} / 24 ))
+    local seconds=$(( seconds_total % 60 ))
+    local minutes_total=$(( seconds_total / 60 ))
+    local minutes=$(( minutes_total % 60 ))
+    local hours_total=$(( minutes_total / 60 ))
+    local hours=$(( hours_total % 24 ))
+    local days=$(( hours_total / 24 ))
 
     if [[ "${days}" -gt 0 ]] ; then
         out="${days}d ${hours}h ${minutes}m ${seconds}s"
@@ -236,6 +237,7 @@ check_soa() {
     if [[ "${VERBOSE}" ]] ; then
         echo "Executing: ${cmd}" >&2
     fi
+    # shellcheck disable=disable=SC2086,SC2294
     response=$( eval ${cmd} )
     if [[ "${VERBOSE}" ]] ; then
         echo -e "Response:\n${response}" >&2
@@ -291,7 +293,7 @@ check_soa() {
         fi
 
         if [[ "${remaining}" -lt 0 ]] ; then
-            msg+=" Signatures in zone '${ZONE}' expired $((-1 * ${remaining})) seconds ago."
+            msg+=" Signatures in zone '${ZONE}' expired $((-1 * remaining)) seconds ago."
             echo "CRITICAL - ${BASENAME}: ${msg}"
             exit 2
         fi
@@ -308,7 +310,7 @@ check_soa() {
             exit 1
         fi
 
-        msg+" Remaining signature validity for zone '${ZONE}' is ${remaining} seconds."
+        msg+=" Remaining signature validity for zone '${ZONE}' is ${remaining} seconds."
     fi
 
     echo "OK - ${BASENAME}: ${msg}"
