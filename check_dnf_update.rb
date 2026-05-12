@@ -14,13 +14,15 @@ STATES = {
 options = {
   warning: 90,
   critical: 91,
-  state_file: '/var/lib/dnf/verify_update_state.log'
+  state_file: '/var/lib/dnf/verify_update_state.log',
+  reboothint: true
 }
 
 OptionParser.new do |opts|
   opts.on('-w WARNING', Integer) { |warning| options[:warning] = warning }
   opts.on('-c CRITICAL', Integer) { |critical| options[:critical] = critical }
   opts.on('--state-file PATH', String) { |path| options[:state_file] = path }
+  opts.on('--[no-]reboothint', TrueClass) { |path| options[:reboothint] = path }
 end.parse!
 
 last_upgrade = Time.parse('1970-01-01T00:00:00Z')
@@ -43,20 +45,22 @@ threshold_warn = Time.utc(last_upgrade.year, last_upgrade.month, last_upgrade.da
 
 # `/bin/dnf list updates` would also show versionlocked packages
 check_update, check_update_status = Open3.capture2e('/bin/dnf --quiet --cacheonly check-update')
-_, needs_restarting = Open3.capture2e('/usr/bin/needs-restarting --reboothint')
+reboothint, needs_restarting = Open3.capture2e('/usr/bin/needs-restarting --quiet --cacheonly --reboothint') if options[:reboothint]
+needs_restarting = options[:reboothint] && !needs_restarting.success?
 
-status = if (current >= threshold_crit && check_update_status.exitstatus == 100) || !needs_restarting.success?
+status = if (current >= threshold_crit && check_update_status.exitstatus == 100) || needs_restarting
            [2, 'CRITICAL']
          elsif current >= threshold_warn && check_update_status.exitstatus == 100
            [1, 'WARNING']
-         elsif check_update_status.success?
+         elsif check_update_status.success? || check_update_status.exitstatus == 100
            [0, 'OK']
          else
            [3, 'UNKOWN']
          end
 output = status[1]
-output += ' - System needs restarting!' unless needs_restarting.success?
+output += ' - System needs restarting!' if needs_restarting
 output += " - Last upgrade: #{last_upgrade}"
+output += "\n#{reboothint}" if needs_restarting
 output += "\nUpdates available:\n#{check_update}" unless check_update_status.success?
 
 puts output
