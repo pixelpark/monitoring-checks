@@ -72,19 +72,15 @@ usage() {
 
 #------------------------------------------------------------------------------
 timespec () {
-    lorcval val
-
-    val=$(echo "$1" | tr -d dhm)
-
     case $1 in
         *m)
-            echo "$(( val * 60))"
+            echo "$(( ${1/[dhm]/} * 60))"
             ;;
         *h)
-            echo "$(( val * 60 * 60 ))"
+            echo "$(( ${1/[dhm]/} * 60 * 60 ))"
             ;;
         *d)
-            echo "$(( val * 60 * 60 * 24 ))"
+            echo "$(( ${1/[dhm]/} * 60 * 60 * 24 ))"
             ;;
         *)
             echo "$1"
@@ -243,9 +239,10 @@ check_soa() {
         echo -e "Response:\n${response}" >&2
     fi
 
-    server=$( echo "${response}" | grep -P -i '^;; SERVER:' | sed -e 's/^;; SERVER:[ 	][ 	]*//i' )
+    server=$( echo "${response}" | grep -P -i '^;; SERVER:')
+    server="${server/;; SERVER: /}"
 
-    if echo "${response}" |  grep -P -q -i "^${ZONE}\\.\\s.*\\ssoa\\s" ; then
+    if echo "${response}" | grep -P -q -i "^${ZONE}\\.\\s.*\\ssoa\\s" ; then
         :
     else
         echo "CRITICAL - ${BASENAME}: Did not found SOA of zone '${ZONE}', as observed on server ${server}."
@@ -256,27 +253,15 @@ check_soa() {
 
     if [[ "${DNSSEC}" ]] ; then
 
-        remaining=
-        remaining=$( echo "${response}" | gawk '
-            /RRSIG/ {
-                expiration = $9;
-                time_left = mktime(\
-                    substr(expiration, 1, 4) " " \
-                    substr(expiration, 5, 2) " " \
-                    substr(expiration, 7, 2) " " \
-                    substr(expiration, 9, 2) " " \
-                    substr(expiration, 11, 2) " " \
-                    substr(expiration, 13, 2))  - systime();
-                if (remaining)
-                    remaining = (remaining > time_left ? time_left : remaining);
-                else
-                    remaining = time_left
-                }
+        if echo "${response}" | grep -P -q -i "^${ZONE}\\.\\s.*\\sRRSIG\\s" ; then
+            :
+        else
+            echo "CRITICAL - ${BASENAME}: Missing RRSIG response for SOA of '${ZONE}', as observed on server ${server}."
+            exit 2
+        fi
 
-            END {
-                print remaining;
-            }
-        ' )
+        rrsig=( $( echo "${response}" | grep -P -i '\s+IN\s+RRSIG\s+SOA\s+') )
+        remaining=$(( $(date --utc --date="${rrsig[8]:0:4}-${rrsig[8]:4:2}-${rrsig[8]:6:2} ${rrsig[8]:8:2}:${rrsig[8]:10:2}:${rrsig[8]:12:2}" +%s) - $(date --utc +%s) ))
 
         remaining_out=$( seconds2human "${remaining}" )
         warn_out=$( seconds2human "${WARN}" )
@@ -293,7 +278,7 @@ check_soa() {
         fi
 
         if [[ "${remaining}" -lt 0 ]] ; then
-            msg+=" Signatures in zone '${ZONE}' expired $((-1 * remaining)) seconds ago."
+            msg+=" Signatures in zone '${ZONE}' expired ${remaining} seconds ago."
             echo "CRITICAL - ${BASENAME}: ${msg}"
             exit 2
         fi
