@@ -174,10 +174,10 @@ when 'TELEFON'
              else
                ": #{options[:state]}"
              end
-  message += "\n - CallerID: `#{Digest::SHA512.hexdigest(options[:callerid])}`" if options.include?(:callerid)
+  message += "\n - CallerID: `#{Digest::SHA256.hexdigest(options[:callerid])}`(SHA256)" if options.include?(:callerid)
   message += "\n - Destination:" if options.include?(:telefon) || options.include?(:username)
   message += " `#{options[:username]}`" if options.include?(:username)
-  message += " `#{Digest::SHA512.hexdigest(options[:telefon])}`" if options.include?(:telefon)
+  message += " `#{Digest::SHA256.hexdigest(options[:telefon])}`(SHA256)" if options.include?(:telefon)
 when 'RESTART'
   options[:icon_emoji] = ':icinga:' unless options.include?(:icon_emoji)
   message = ":recycle: #{options[:type]} | Restarting Service "
@@ -207,8 +207,8 @@ payload = {
 }
 
 payload[:icon_emoji] = options[:icon_emoji] if options.include?(:icon_emoji) && !options[:icon_emoji].empty?
-payload[:chat_username] = options[:chat_username] if options.include?(:chat_username) && !options[:chat_username].empty?
-payload[:chat_username] = options[:icinga_host] if options.include?(:icinga_host) && !payload.include?(:chat_username)
+payload[:username] = options[:chat_username] if options.include?(:chat_username) && !options[:chat_username].empty?
+payload[:username] = options[:icinga_host] if options.include?(:icinga_host) && !payload.include?(:chat_username)
 payload = payload.to_json
 
 begin

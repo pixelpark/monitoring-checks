@@ -2,7 +2,7 @@
 
 # Usage with DNF:
 #   dnf install python3-dnf-plugin-post-transaction-actions
-#   echo '*:any:/path/to/check_last_update_state.rb' > /etc/dnf/plugins/post-transaction-actions.d/verify_update_state.action
+#   echo '*:any:/path/to/verify_update_state.rb' > /etc/dnf/plugins/post-transaction-actions.d/verify_update_state.action
 
 require 'open3'
 require 'time'
