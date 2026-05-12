@@ -8,7 +8,7 @@ VERBOSE="n"
 DEBUG="n"
 QUIET='n'
 
-VERSION="3.0"
+VERSION="3.1"
 
 # console colors:
 RED=""
