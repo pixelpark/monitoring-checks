@@ -1,8 +1,6 @@
 #!/bin/bash
 # shellcheck disable=SC2317  # Don't warn about unreachable commands in this file
 #
-# After ideas from https://raw.githubusercontent.com/ableyjoe/checksig.sh/master/checksig.sh
-#
 
 set -e
 set -u
@@ -10,12 +8,14 @@ set -u
 VERBOSE=""
 DEBUG=""
 
-VERSION="0.1"
+VERSION="0.3"
 
 BASENAME=$(basename "${0}" )
 BASE_DIR=$( dirname "$0" )
 cd "${BASE_DIR}"
 BASE_DIR=$( readlink -f . )
+
+TRUSTED_ANCHORS_FILE="dnssec-trust-anchors.key"
 
 # DIG Options
 DNSSEC=
@@ -32,8 +32,8 @@ description() {
 	If the option --dnssec is given, additionally the DNSSEC RRSIG of the SOA is
 	checked for its existence and its remaining livetime.
 
-	The threshold may be given as integers of seconds, or as minutes with the suffix 'm',
-	as hours with the suffix 'h' or as days with the suffix 'd'.
+	The thresholds may be given as integers of seconds, or as minutes with the suffix 'm',
+	as hours with the suffix 'h', as days with the suffix 'd' or as weeks with the suffix 'w'.
 
 	EOF
 
@@ -72,15 +72,25 @@ usage() {
 
 #------------------------------------------------------------------------------
 timespec () {
+    if [[ "${1}" =~ ^[0-9]+[mhdw]?$ ]] ; then
+        :
+    else
+        echo "UNKNOWN ${BASENAME}: Invalid time spec '${1}' given." >&2
+        exit 3
+    fi
+
     case $1 in
         *m)
-            echo "$(( ${1/[dhm]/} * 60))"
+            echo "$(( ${1/m/} * 60))"
             ;;
         *h)
-            echo "$(( ${1/[dhm]/} * 60 * 60 ))"
+            echo "$(( ${1/h/} * 60 * 60 ))"
             ;;
         *d)
-            echo "$(( ${1/[dhm]/} * 60 * 60 * 24 ))"
+            echo "$(( ${1/d/} * 60 * 60 * 24 ))"
+            ;;
+        *w)
+            echo "$(( ${1/w/} * 7 * 60 * 60 * 24 ))"
             ;;
         *)
             echo "$1"
@@ -207,16 +217,11 @@ get_options() {
 }
 
 #------------------------------------------------------------------------------
-check_soa() {
-
+check_soa_with_dig() {
     local cmd
     local response
     local server
-    local remaining
     local msg
-    local remaining_out
-    local warn_out
-    local crit_out
 
     cmd="dig \"${ZONE}\" "
 
@@ -225,10 +230,6 @@ check_soa() {
     fi
 
     cmd+="SOA +nocomments +noadditional +nocmd +noquestion"
-
-    if [[ "${DNSSEC}" ]] ; then
-        cmd+=" +dnssec"
-    fi
 
     if [[ "${VERBOSE}" ]] ; then
         echo "Executing: ${cmd}" >&2
@@ -243,60 +244,130 @@ check_soa() {
     server="${server/;; SERVER: /}"
 
     if echo "${response}" | grep -P -q -i "^${ZONE}\\.\\s.*\\ssoa\\s" ; then
-        :
-    else
-        echo "CRITICAL - ${BASENAME}: Did not found SOA of zone '${ZONE}', as observed on server ${server}."
+        echo "OK - ${BASENAME}: Found SOA of zone '${ZONE}', as observed on server ${server}."
+        exit 0
+
+    fi
+
+    echo "CRITICAL - ${BASENAME}: Did not found SOA of zone '${ZONE}', as observed on server ${server}."
+    exit 2
+
+}
+
+#------------------------------------------------------------------------------
+check_soa_with_delv() {
+
+    local cmd
+    local response
+    local request_status
+    local signing_status
+    local rrsig_record
+    local rrsig
+    local remaining
+    local msg
+    local remaining_out
+    local warn_out
+    local crit_out
+
+    cmd="delv \"${ZONE}\" "
+
+    if [[ -n "${SERVER}" ]] ; then
+        cmd+="\"@${SERVER}\" "
+    fi
+
+    cmd+="SOA +yaml"
+
+    if [[ -f "${TRUSTED_ANCHORS_FILE}" ]] ; then
+        cmd+=" -a \"${TRUSTED_ANCHORS_FILE}\""
+    fi
+
+    if [[ "${VERBOSE}" ]] ; then
+        echo "Executing: ${cmd}" >&2
+    fi
+    # shellcheck disable=disable=SC2086,SC2294
+    response=$( eval ${cmd} )
+    if [[ "${VERBOSE}" ]] ; then
+        echo -e "Response:\n${response}" >&2
+    fi
+
+    shopt -s extglob
+    request_status=$( echo "${response}" | grep '^status:' )
+    request_status="${request_status/#status: /}"
+    request_status="${request_status,,}"
+    if [[ "${VERBOSE}" ]] ; then
+        echo "Request status: ${request_status}" >&2
+    fi
+
+    if [[ "${request_status}" != 'success' ]] ; then
+        msg="DNS Zone '${ZONE}' does not exists or could not retrieved: ${request_status}"
+        echo "CRITICAL - ${BASENAME}: ${msg}"
         exit 2
     fi
 
-    msg="Found SOA of zone '${ZONE}', as observed on server ${server}."
-
-    if [[ "${DNSSEC}" ]] ; then
-
-        if echo "${response}" | grep -P -q -i "^${ZONE}\\.\\s.*\\sRRSIG\\s" ; then
-            :
-        else
-            echo "CRITICAL - ${BASENAME}: Missing RRSIG response for SOA of '${ZONE}', as observed on server ${server}."
-            exit 2
-        fi
-
-        rrsig=( $( echo "${response}" | grep -P -i '\s+IN\s+RRSIG\s+SOA\s+') )
-        remaining=$(( $(date --utc --date="${rrsig[8]:0:4}-${rrsig[8]:4:2}-${rrsig[8]:6:2} ${rrsig[8]:8:2}:${rrsig[8]:10:2}:${rrsig[8]:12:2}" +%s) - $(date --utc +%s) ))
-
-        remaining_out=$( seconds2human "${remaining}" )
-        warn_out=$( seconds2human "${WARN}" )
-        crit_out=$( seconds2human "${CRIT}" )
-
-        if [[ "${VERBOSE}" ]] ; then
-            echo -e "Remaining: ${remaining_out}" >&2
-        fi
-
-        if [[ -z "${remaining}" ]] ; then
-            msg+=" Could not find RRSIG of SOA or the signature expiration for zone '${ZONE}'."
-            echo "CRITICAL - ${BASENAME}: ${msg}"
-            exit 2
-        fi
-
-        if [[ "${remaining}" -lt 0 ]] ; then
-            msg+=" Signatures in zone '${ZONE}' expired ${remaining} seconds ago."
-            echo "CRITICAL - ${BASENAME}: ${msg}"
-            exit 2
-        fi
-
-        if [[ "${remaining}" -lt "${CRIT}" ]] ; then
-            msg+=" Remaining signature validity for zone '${ZONE}' is in ${remaining_out}, less than the critical threshold of ${crit_out}."
-            echo "CRITICAL - ${BASENAME}: ${msg}"
-            exit 2
-        fi
-
-        if [[ "${remaining}" -lt "${WARN}" ]] ; then
-            msg+=" Remaining signature validity for zone '${ZONE}' is ${remaining_out}, less than the warning threshold of ${warn_out}."
-            echo "WARNING - ${BASENAME}: ${msg}"
-            exit 1
-        fi
-
-        msg+=" Remaining signature validity for zone '${ZONE}' is ${remaining} seconds."
+    signing_status=$( echo "${response}" | grep -A 1 '^records:' | tail -n 1 )
+    signing_status="${signing_status/#+( )- /}"
+    signing_status="${signing_status/%:/}"
+    signing_status="${signing_status,,}"
+    if [[ "${VERBOSE}" ]] ; then
+        echo "Signing status: ${signing_status}" >&2
     fi
+
+    if [[ "${signing_status}" != 'fully_validated' ]] ; then
+        msg="DNS Zone '${ZONE}' is not signed: ${signing_status}"
+        echo "CRITICAL - ${BASENAME}: ${msg}"
+        exit 2
+    fi
+
+    if echo "${response}" | grep -P -q -i "'${ZONE}\\.\\s.*\\sRRSIG\\s" ; then
+        :
+    else
+        echo "CRITICAL - ${BASENAME}: Missing RRSIG response for SOA of '${ZONE}'."
+        exit 2
+    fi
+
+    rrsig_record=$( echo "${response}" | grep -P -i "'${ZONE}\\.\\s.*\\sRRSIG\\s" | head -n 1 )
+    rrsig_record="${rrsig_record/#+( )- \'/}"
+    rrsig_record="${rrsig_record/%\'/}"
+    if [[ "${VERBOSE}" ]] ; then
+        echo "RRSIG record: ${rrsig_record}" >&2
+    fi
+
+    rrsig=( $( echo "${rrsig_record}" | grep -P -i '\s+IN\s+RRSIG\s+SOA\s+') )
+    remaining=$(( $(date --utc --date="${rrsig[8]:0:4}-${rrsig[8]:4:2}-${rrsig[8]:6:2} ${rrsig[8]:8:2}:${rrsig[8]:10:2}:${rrsig[8]:12:2}" +%s) - $(date --utc +%s) ))
+
+    remaining_out=$( seconds2human "${remaining}" )
+    warn_out=$( seconds2human "${WARN}" )
+    crit_out=$( seconds2human "${CRIT}" )
+
+    if [[ "${VERBOSE}" ]] ; then
+        echo -e "Remaining: ${remaining_out}" >&2
+    fi
+
+    if [[ -z "${remaining}" ]] ; then
+        msg="Could not find RRSIG of SOA or the signature expiration for zone '${ZONE}'."
+        echo "CRITICAL - ${BASENAME}: ${msg}"
+        exit 2
+    fi
+
+    if [[ "${remaining}" -lt 0 ]] ; then
+        msg="Signatures in zone '${ZONE}' expired ${remaining} seconds ago."
+        echo "CRITICAL - ${BASENAME}: ${msg}"
+        exit 2
+    fi
+
+    if [[ "${remaining}" -lt "${CRIT}" ]] ; then
+        msg="Remaining signature validity for zone '${ZONE}' is in ${remaining_out}, less than the critical threshold of ${crit_out}."
+        echo "CRITICAL - ${BASENAME}: ${msg}"
+        exit 2
+    fi
+
+    if [[ "${remaining}" -lt "${WARN}" ]] ; then
+        msg="Remaining signature validity for zone '${ZONE}' is ${remaining_out}, less than the warning threshold of ${warn_out}."
+        echo "WARNING - ${BASENAME}: ${msg}"
+        exit 1
+    fi
+
+    msg="Remaining signature validity for zone '${ZONE}' is ${remaining} seconds (${remaining_out})."
 
     echo "OK - ${BASENAME}: ${msg}"
     exit 0
@@ -313,7 +384,12 @@ check_soa() {
 main() {
 
     get_options "$@"
-    check_soa
+
+    if [[ "${DNSSEC}" ]] ; then
+        check_soa_with_delv
+    else
+        check_soa_with_dig
+    fi
 
 }
 
