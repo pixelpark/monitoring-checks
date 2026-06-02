@@ -102,8 +102,8 @@ output, _status = Open3.capture2e(check)
 
 vtrace = output.scan(/^;;\s+.*$/)
 trust = output.scan(/^;\s+.*$/)
-soa = /^(?<mname>[a-zA-Z0-9.-_]+)\s+(?<rname>[a-zA-Z0-9.-_]+)\s+(?<serial>\d+)\s(?<refresh>\d+)\s+(?<retry>\d+)\s+(?<expire>\d+)\s(?<minimum>\d+)$/.match(output)&.named_captures
-rrsig = %r{^(?<type>SOA)\s+(?<algo>\d+)\s+(?<labels>\d+)\s+(?<ttl>\d+)\s+(?<expiration>\d+)\s+(?<inception>\d+)\s+(?<key_tag>\d+)\s+(?<signer>[a-zA-Z0-9.-_]+)\s+(?<signature>[a-zA-Z0-9/ +=-]+)$}.match(output)&.named_captures
+soa = /^(?<mname>[a-zA-Z0-9._-]+)\s+(?<rname>[a-zA-Z0-9._-]+)\s+(?<serial>\d+)\s(?<refresh>\d+)\s+(?<retry>\d+)\s+(?<expire>\d+)\s(?<minimum>\d+)$/.match(output)&.named_captures
+rrsig = %r{^(?<type>SOA)\s+(?<algo>\d+)\s+(?<labels>\d+)\s+(?<ttl>\d+)\s+(?<expiration>\d+)\s+(?<inception>\d+)\s+(?<key_tag>\d+)\s+(?<signer>[a-zA-Z0-9._-]+)\s+(?<signature>[a-zA-Z0-9/ +=-]+)$}.match(output)&.named_captures
 
 if soa.nil? || soa.empty?
   puts "#{STATES[2]} - Did not found SOA of zone '#{options[:zone]}'"
