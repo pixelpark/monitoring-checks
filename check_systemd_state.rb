@@ -43,9 +43,9 @@ begin
   status = case systemd_state
            when 'running'
              0
-           when 'initializing', 'starting', 'maintenance'
+           when 'initializing', 'starting', 'maintenance', 'degraded'
              1
-           when 'degraded', 'stopping', 'offline'
+           when 'stopping', 'offline'
              2
            else # 'unknown'
              3
