@@ -24,7 +24,7 @@ jobs:
     name: 'RuboCop'
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
     - name: Set up Ruby
       uses: ruby/setup-ruby@v1
       with:
@@ -44,7 +44,7 @@ jobs:
     steps:
 
       - name: "Checking out sources."
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Show Environment
         shell: bash
@@ -210,7 +210,7 @@ jobs:
     steps:
 
       - name: "Checking out sources."
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Show Environment
         shell: bash
