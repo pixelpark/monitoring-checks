@@ -44,8 +44,13 @@ begin
 
   messages = []
   stdout, _stderr, _status = Open3.capture3("systemctl list-units --output=json '#{options[:unit]}'")
-  unit_status = JSON.parse(stdout)
-
+  begin
+    unit_status = JSON.parse(stdout)
+  rescue JSON::ParserError
+    unit_status = [%w[unit load active sub description].zip(
+      stdout.lines.map(&:strip).find { |l| l.match?(/^#{options[:unit]}\s+loaded\s+/m) }&.split(/\s+/, 5)
+    ).to_h]
+  end
   if unit_status.empty? || unit_status.none? { |x| x['unit'] == options[:unit] }
     puts "#{STATES[2]} - unit '#{options[:unit]}' not existing"
     exit 2
@@ -58,8 +63,7 @@ begin
                 { state: 1, group: :state, message: 'unit NOT enabled' }
               end
 
-  _stdout, _stderr, status = Open3.capture3("systemctl --quiet is-active '#{options[:unit]}'")
-  messages << if status.exitstatus.zero?
+  messages << if unit_status.any? { |x| x['unit'] == options[:unit] && x['active'] == 'active' }
                 { state: 0, group: :state, message: 'unit is running' }
               else
                 { state: 2, group: :state, message: 'unit NOT running' }
