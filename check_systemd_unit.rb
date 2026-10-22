@@ -37,18 +37,18 @@ begin
   end
 
   supported_units = '.service'
-  unless options[:unit] =~ /\.service\z/
+  unless options[:unit].match?(/\.service\z/)
     puts "#{STATES[3]} - Cannot determine which unit type or unit name is to be checked, as \"#{UNIT}\" does either not contain a unit name or unit type in its name. Supported units are: #{supported_units}"
     exit 3
   end
 
   messages = []
-  stdout, _stderr, _status = Open3.capture3("systemctl list-units --output=json '#{options[:unit]}'")
+  stdout, _stderr, _status = Open3.capture3("systemctl list-units --output=json --all '#{options[:unit]}'")
   begin
     unit_status = JSON.parse(stdout)
   rescue JSON::ParserError
     unit_status = [%w[unit load active sub description].zip(
-      stdout.lines.map(&:strip).find { |l| l.match?(/^#{options[:unit]}\s+loaded\s+/m) }&.split(/\s+/, 5)
+      stdout.lines.map(&:strip).find { |l| l.match?(/^#{options[:unit]}\s+loaded\s+/m) }&.split(/\s+/, 5) || []
     ).to_h]
   end
   if unit_status.empty? || unit_status.none? { |x| x['unit'] == options[:unit] }
@@ -73,7 +73,7 @@ begin
     stdout, _stderr, _status = Open3.capture3("systemctl -l -a -n 0 status '#{options[:unit]}'")
     options[:cgroup].each do |x|
       name = x.gsub(%r{(\A.*/| .*\z)}, '')
-      messages << if stdout =~ /(├|└)─[[:space:]]*[0-9]+[[:space:]]#{x}([[:cntrl:]]|$)/
+      messages << if /(├|└)─[[:space:]]*[0-9]+[[:space:]]#{x}([[:cntrl:]]|$)/.match?(stdout)
                     { state: 0, group: :cproc, message: "CPROC #{name} is running" }
                   else
                     { state: 2, group: :cproc, message: "CPROC #{name} is MISSING" }
