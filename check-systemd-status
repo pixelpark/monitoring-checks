@@ -56,7 +56,7 @@ from subprocess import PIPE, Popen
 from monitoring import DirectoryOptionAction, LogFileOptionAction, MonitoringPlugin
 from monitoring import pp
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 LOG = logging.getLogger(__name__)
 
@@ -84,8 +84,6 @@ class CheckSystemdStatusPlugin(MonitoringPlugin):
     # -------------------------------------------------------------------------
     def run(self):
         """Execute the main actions of the application."""
-        LOG.debug("I'm walking, yes indeed, I'm walking....")
-
         cmd = "systemctl is-system-running"
 
         completed_process = self.execute(cmd, shell=True)
@@ -125,6 +123,46 @@ class CheckSystemdStatusPlugin(MonitoringPlugin):
                     keys_uc[key] = key.upper()
 
                 self.status_msg += "\n" + self.get_table(keys, keys_uc, failed_units)
+
+        self.get_metrics()
+
+    # -------------------------------------------------------------------------
+    def get_metrics(self):
+        """get some metrics about systemd units as performance data."""
+        LOG.debug("Vollecting metrics ...")
+
+        cmd = "systemctl list-units --all --output=json"
+        completed_process = self.execute(cmd, shell=True)
+
+        units = json.loads(completed_process.stdout)
+        if self.verbose > 2:
+            LOG.debug("All units:" + "\n" + pp(units))
+
+        self.add_perfdata("units_total", len(units))
+
+        states = {
+            "active": 0,
+            "reloading": 0,
+            "inactive": 0,
+            "failed": 0,
+            "activating": 0,
+            "deactivating": 0,
+            "maintenance": 0,
+        }
+
+        for unit_data in units:
+            active_state = "unknown"
+            if "active" in unit_data:
+                active_state = unit_data["active"]
+            if active_state not in states:
+                states[active_state] = 0
+            states[active_state] += 1
+
+        if self.verbose > 1:
+            LOG.debug("Count of different states:\n" + pp(states))
+
+        for state in sorted(states.keys(), key=str.lower):
+            self.add_perfdata(f"units_{state}", states[state])
     
 
 # =============================================================================
