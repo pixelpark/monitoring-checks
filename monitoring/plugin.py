@@ -705,7 +705,6 @@ class MonitoringPlugin(MonitoringObject):
         for key in keys:
             max_length[key] = len(headers[key])
 
-
         for row in data:
             for key in keys:
                 if len(row[key]) > max_length[key]:
