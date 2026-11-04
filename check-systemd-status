@@ -56,7 +56,7 @@ from subprocess import PIPE, Popen
 from monitoring import DirectoryOptionAction, LogFileOptionAction, MonitoringPlugin
 from monitoring import pp
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 LOG = logging.getLogger(__name__)
 
@@ -69,7 +69,6 @@ class CheckSystemdStatusPlugin(MonitoringPlugin):
     def __init__(self):
         """Initialize the CheckSystemdStatusPlugin object."""
         desc = "Evaluating the systemctl status."
-        self.timeout = 10
 
         super(CheckSystemdStatusPlugin, self).__init__(version=__version__, description=desc)
 
@@ -87,11 +86,11 @@ class CheckSystemdStatusPlugin(MonitoringPlugin):
         """Execute the main actions of the application."""
         LOG.debug("I'm walking, yes indeed, I'm walking....")
 
-        cmd = ["/usr/bin/systemctl", "is-system-running"]
+        cmd = "systemctl is-system-running"
 
-        retcode, stdout, stderr = self.execute(*cmd)
+        completed_process = self.execute(cmd, shell=True)
 
-        system_status = str(stdout).strip().lower()
+        system_status = str(completed_process.stdout).strip().lower()
 
         if system_status == "running":
             self.status = self.status_ok
@@ -102,95 +101,31 @@ class CheckSystemdStatusPlugin(MonitoringPlugin):
         else:
             self.status = self.status_unknown
 
-        failed_units = []
-        if self.status != self.status_ok:
-            cmd = ["/usr/bin/systemctl", "list-units", "--failed", "--output=json"]
-            retcode, stdout, stderr = self.execute(*cmd)
+        self.status_msg = (
+            "According to systemd, the overall state of the system is [{}].".format(system_status) 
+        )
 
-            failed_units = json.loads(stdout)
+        if self.status != self.status_ok:
+            failed_units = []
+
+            cmd = "systemctl list-units --failed --output=json"
+            completed_process = self.execute(cmd, shell=True)
+
+            failed_units = json.loads(completed_process.stdout)
             if self.verbose > 1:
                 LOG.debug("Failed units:" + "\n" + pp(failed_units))
-            self.status_msg = (
-                "According to systemd, the overall state of the system is [{}].".format(
-                    system_status) 
-            )
 
             if failed_units:
                 first = failed_units[0]
                 keys = []
                 keys_uc = {}
-                max_length = {}
+
                 for key in first.keys():
                     keys.append(key)
-                    max_length[key] = len(key)
                     keys_uc[key] = key.upper()
 
-                if self.verbose > 2:
-                    LOG.debug("keys_uc:\n" + pp(keys_uc))
-
-                for unit in failed_units:
-                    for key in keys:
-                        if key in unit:
-                            if len(unit[key]) > max_length[key]:
-                                max_length[key] = len(unit[key])
-
-                tpl_tokens = []
-                for key in keys:
-                    token = f"{{{key}:<{max_length[key]}}}"
-                    tpl_tokens.append(token)
-                template = "  ".join(tpl_tokens)
-
-                if self.verbose > 1:
-                    LOG.debug(f"Line template: {template!r}")
-
-                self.status_msg += "\n" + template.format(**keys_uc) + "\n"
-                for unit in failed_units:
-                    self.status_msg += "\n" + template.format(**unit)
+                self.status_msg += "\n" + self.get_table(keys, keys_uc, failed_units)
     
-    # -------------------------------------------------------------------------
-    def execute(self, *cmd):
-        """Execute the given command."""
-        cmd_str = " ".join((quote(x) for x in cmd))
-        LOG.debug("Executing: {}".format(cmd_str))
-
-        process = None
-        stdout = None
-        stderr = None
-        retcode = None
-
-        try:
-            process = Popen(cmd, stdout=PIPE, stderr=PIPE, encoding="utf-8", errors="surrogateescape")
-
-            if self.verbose > 0:
-                LOG.debug("PID of process: {}".format(process.pid))
-            try:
-                stdout, stderr = process.communicate(timeout=self.timeout)
-            except Exception as e:
-                if self.verbose > 2:
-                    LOG.debug("{c} happened, killing process: {e}".format(
-                        c=e.__class__.__name__, e=e))
-                process.poll()
-                if process.returncode is None:
-                    process.kill()
-                process.wait()
-                raise
-
-            retcode = process.poll()
-
-        finally:
-            if process:
-                if process.stdout:
-                    process.stdout.close()
-                if process.stderr:
-                    process.stderr.close()
-                if process.stdin:
-                    try:
-                        process.stdin.close()
-                    finally:
-                        pass
-
-        return (retcode, stdout, stderr)
-
 
 # =============================================================================
 

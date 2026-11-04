@@ -20,9 +20,12 @@ import datetime
 import logging
 import os
 import re
+import subprocess
 import sys
 import traceback
 from pathlib import Path
+from shlex import quote
+from subprocess import SubprocessError
 
 DEFAULT_TERMINAL_WIDTH = 99
 DEFAULT_TERMINAL_HEIGHT = 40
@@ -37,7 +40,7 @@ from .perf import MonitoringPerformance
 
 LOG = logging.getLogger(__name__)
 
-__version__ = "0.9.1"
+__version__ = "0.10.0"
 
 
 # =============================================================================
@@ -47,6 +50,8 @@ class MonitoringPlugin(MonitoringObject):
 
     Monitoring plugins are checkscripts for Nagios/Icinga.
     """
+
+    default_execution_timeout = 10
 
     # -------------------------------------------------------------------------
     @classmethod
@@ -81,6 +86,7 @@ class MonitoringPlugin(MonitoringObject):
         self._status = 3
         self._status_msg = None
         self.perf_data = []
+        self.execution_timeout = self.default_execution_timeout
 
         self.messages = {
             "warning": [],
@@ -617,6 +623,141 @@ class MonitoringPlugin(MonitoringObject):
     def __call__(self):
         """Call the main run method."""
         return self._run()
+
+    # -------------------------------------------------------------------------
+    def execute(self, cmd, shell=False, timeout=None):
+        """Execute the given command."""
+        if shell:
+            cmd_str = cmd
+        else:
+            cmd_str = " ".join((quote(x) for x in cmd))
+        LOG.debug("Executing: {}".format(cmd_str))
+
+        if timeout is None:
+            timeout = self.execution_timeout
+
+        try:
+            completed_process = subprocess.run(
+                cmd,
+                shell=shell,
+                capture_output=True,
+                timeout=timeout,
+                encoding="utf-8",
+                errors="surrogateescape"
+            )
+        except SubprocessError as e:
+            if self.verbose > 2:
+                LOG.debug("{c} happened: {e}".format(c=e.__class__.__name__, e=e))
+            raise
+
+        return completed_process
+
+    # -------------------------------------------------------------------------
+    def get_table(self, keys, headers, data):
+        """
+        Return a table of data.
+
+        * The parameter 'keys' is a list of the keys of parameter headers and the items of data.
+          If a key starts with the character '>', the appropriate column will be right aligned,
+          and if it starts with '=', the column will be centered.
+          If the key does start with '<' or it does not start with '>' or '=', the
+          column will be left aligned.
+        * The parameter 'headers' is a dict with the displayed header names.
+          The keys of the dict must kontain the keys of the parameter 'keys'.
+        * The parameter 'data' is a list of dicts with the data rows.
+          The keys of each dict must kontain the keys of the parameter 'keys'.
+        """
+        alignments = {}
+        used_keys = []
+
+        for key in keys:
+            if key.startswith(">"):
+                used_key = key[1:]
+                if used_key == "":
+                    raise ValueError(f"Invalid key {key!r} given on calling print_table.")
+                alignments[used_key] = "r"
+                used_keys.append(used_key)
+            elif key.startswith("="):
+                used_key = key[1:]
+                if used_key == "":
+                    raise ValueError(f"Invalid key {key!r} given on calling print_table.")
+                alignments[used_key] = "c"
+                used_keys.append(used_key)
+            elif key.startswith("<"):
+                used_key = key[1:]
+                if used_key == "":
+                    raise ValueError(f"Invalid key {key!r} given on calling print_table.")
+                alignments[used_key] = "l"
+                used_keys.append(used_key)
+            else:
+                alignments[key] = "l"
+                used_keys.append(key)
+
+        if self.verbose > 3:
+            LOG.debug("Table alignments: " + pp(alignments))
+
+        return self._get_table(keys, alignments, headers, data)
+
+    # -------------------------------------------------------------------------
+    def _get_table(self, keys, alignments, headers, data):
+
+        max_length = {}
+        for key in keys:
+            max_length[key] = len(headers[key])
+
+
+        for row in data:
+            for key in keys:
+                if len(row[key]) > max_length[key]:
+                    max_length[key] = len(row[key])
+        if self.verbose > 3:
+            LOG.debug("Field lengths: " + pp(max_length))
+
+        template_array = []
+        for key in keys:
+            template_array.append(f"{{{key}}}")
+        template = " ".join(template_array)
+        if self.verbose > 3:
+            LOG.debug(f"Line template: {template!r}")
+
+        used_data = []
+
+        if headers:
+            new_row = {}
+            for key in keys:
+                val = headers[key]
+                if alignments[key] == "r":
+                    new_row[key] = val.rjust(max_length[key])
+                elif alignments[key] == "c":
+                    new_row[key] = val.center(max_length[key])
+                else:
+                    new_row[key] = val.ljust(max_length[key])
+            if self.verbose > 3:
+                LOG.debug("Header row: " + pp(new_row))
+            used_data.append(new_row)
+
+        for row in data:
+            new_row = {}
+            for key in keys:
+                val = row[key]
+                if alignments[key] == "r":
+                    new_row[key] = val.rjust(max_length[key])
+                elif alignments[key] == "c":
+                    new_row[key] = val.center(max_length[key])
+                else:
+                    new_row[key] = val.ljust(max_length[key])
+            used_data.append(new_row)
+            if self.verbose > 3:
+                LOG.debug("New row: " + pp(new_row))
+
+        if self.verbose > 3:
+            LOG.debug("Used data:\n" + pp(used_data))
+
+        lines = [template.format(**row) for row in used_data]
+        if self.verbose > 3:
+            LOG.debug("Generated lines:\n" + pp(lines))
+
+        return "\n".join(lines)
 
 
 # =============================================================================
