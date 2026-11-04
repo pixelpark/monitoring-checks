@@ -1,0 +1,314 @@
+#!/usr/bin/python3
+# -*- coding: utf-8 -*-
+"""
+@summary: Monitoring script for checking the status of a particular systemd unit.
+
+@author: Frank Brehm
+@contact: frank@brehm-online.com
+
+@copyright: © 2021 - 2026 Frank Brehm, Berlin, Germany
+@date:   2026-11-04
+
+By an idea of: Emmanuel BUU <emmanuel.buu@ives.fr> (c) IVèS
+               http://www.ives.fr/
+
+Available unit load states:
+ * bad-setting
+ * error
+ * loaded
+ * masked
+ * merged
+ * not-found
+ * stub
+
+Available unit active states:
+ * activating
+ * active
+ * deactivating
+ * failed
+ * inactive
+ * maintenance
+ * reloading
+
+Available unit types:
+ * automount
+ * device
+ * mount
+ * path
+ * scope
+ * service
+ * slice
+ * socket
+ * swap
+ * target
+ * timer
+
+"""
+
+from __future__ import print_function
+
+# Standard modules
+import json
+import logging
+import os
+import re
+from shlex import quote
+
+# Own modules
+from monitoring import MonitoringPlugin
+from monitoring import pp
+
+__version__ = "0.1.0"
+
+LOG = logging.getLogger(__name__)
+
+
+# =============================================================================
+class CheckSystemdUnitPlugin(MonitoringPlugin):
+    """A monitoring plugin for the status of a systemctl unit."""
+
+    available_load_states = (
+        "bad-setting",
+        "error",
+        "loaded",
+        "masked",
+        "merged",
+        "not-found",
+        "stub",
+    )
+    available_active_states = (
+        "activating",
+        "active",
+        "deactivating",
+        "failed",
+        "inactive maintenance",
+        "reloading",
+    )
+    available_unit_types = (
+        "automount",
+        "device",
+        "mount",
+        "path",
+        "scope",
+        "service",
+        "slice",
+        "socket",
+        "swap",
+        "target",
+        "timer",
+    )
+
+    default_expected_load_status = "loaded"
+    default_expected_active_status = "active"
+    default_unit_type = "service"
+
+
+    # -------------------------------------------------------------------------
+    def __init__(self):
+        """Initialize the CheckSystemdUnitPlugin object."""
+        desc = "Evaluating the status of a particular systemctl unit."
+
+        self.expected_load_status = self.default_expected_load_status
+        self.expected_active_status = self.default_expected_active_status
+        self.unit = None
+        self.processes = []
+
+        super(CheckSystemdUnitPlugin, self).__init__(version=__version__, description=desc)
+
+        self.status_msg = "Status of systemctl unit is UNKNOWN."
+
+    # -------------------------------------------------------------------------
+    def init_arg_parser(self):
+        """Initialize special command line options for this plugin."""
+        check_group = self.arg_parser.add_argument_group("Options for checking systemd unit")
+
+        check_group.add_argument(
+            "-L",
+            "--load-status",
+            "--expected-load-status",
+            metavar="STATUS",
+            dest="load_status",
+            choices=self.available_load_states,
+            default=self.expected_load_status,
+            help="The expected load status of the systemd unit (default: %(default)r).",
+        )
+
+        check_group.add_argument(
+            "-A",
+            "--active-status",
+            "--expected-active-status",
+            metavar="STATUS",
+            dest="active_status",
+            choices=self.available_active_states,
+            default=self.expected_active_status,
+            help="The expected active status of the systemd unit (default: %(default)r).",
+        )
+
+        check_group.add_argument(
+            "-p",
+            "--process",
+            metavar="PROCESS",
+            dest="process",
+            nargs="*",
+            help=(
+                "A cgroup process to check cwwhether it is running. "
+                "It can be given multiple times."
+            )
+        )
+
+        check_group.add_argument(
+            "unit",
+            metavar="UNIT",
+            nargs=1,
+            help=(
+                "The name of systemd unit to check. "
+                "If the unit name does not end with the type of the unit, a unit of "
+                "type '.{}' is expected."
+            ).format(self.default_unit_type),
+        )
+
+    # -------------------------------------------------------------------------
+    def post_init(self):
+        """Post initialization tasks."""
+        super(CheckSystemdUnitPlugin, self).post_init()
+
+        if hasattr(self.args, "load_status") and self.args.load_status:
+            self.expected_load_status = self.args.load_status
+
+        if hasattr(self.args, "active_status") and self.args.active_status:
+            self.expected_active_status = self.args.active_status
+
+        if hasattr(self.args, "process") and self.args.process:
+            for proc in self.args.process:
+                proc_stripped = proc.strip()
+                if proc_stripped and proc_stripped not in self.processes:
+                    self.processes.append(proc_stripped)
+
+        if hasattr(self.args, "unit") and self.args.unit:
+            given_unit = self.args.unit[0]
+        else:
+            self.nagios_exit(
+                self.status_unknown,
+                "No service name has been provided. Nothing to check."
+            )
+
+        pattern_unit_type = r"^(?P<base>.+)\.(?P<type>[a-z]+)$"
+        match = re.search(pattern_unit_type, given_unit, re.IGNORECASE)
+        if match:
+            unit_base = match.group("base")
+            unit_type = match.group("type").lower()
+            if unit_type not in self.available_unit_types:
+                msg = f"Found invalid unit type {unit_type!r} in given systemd unit {given_unit!r}."
+                self.nagios_exit(self.status_unknown, msg)
+            self.unit = unit_base + "." + unit_type
+        else:
+            self.unit = unit_base + "." + self.default_unit_type
+
+        self.initialized = True
+
+    # -------------------------------------------------------------------------
+    def run(self):
+        """Execute the main actions of the application."""
+        LOG.debug(f"Evaluating status of systemd unit {self.unit!r}.")
+        self.status_msg = f"Status of systemctl unit {self.unit!r} is UNKNOWN."
+
+        unit_quoted = quote(self.unit)
+
+        cmd = f"systemctl list-units --output=json --all {unit_quoted}"
+
+        completed_process = self.execute(cmd, shell=True)
+        units = json.loads(completed_process.stdout)
+
+        messages = []
+
+        if not units:
+            msg = f"Systemd unit {self.unit!r} does not exists."
+            self.nagios_exit(self.status_unknown, msg)
+
+        unit_status = units[0]
+        if self.verbose > 2:
+            LOG.debug("Found status of systemd unit {self.unit!r}:\n" + pp(unit_status))
+        active_status = unit_status["active"]
+        sub_status = unit_status["sub"]
+        if unit_status["active"] == "active":
+            self.status = self.status_ok
+        else:
+            self.status = self.status_critical
+
+        messages.append(f"is {active_status} ({sub_status})")
+
+        cmd = f"systemctl --quiet is-enabled {unit_quoted}"
+        completed_process = self.execute(cmd, shell=True)
+        if completed_process.returncode == 0:
+            load_status = self.status_ok
+            enable_msg = "is enabled"
+        else:
+            load_status = self.status_warning
+            enable_msg = "is NOT enabled"
+        if load_status > self.status:
+            self.status = load_status
+        messages.insert(0, enable_msg)
+
+        cprocs_messages = []
+        if self.processes:
+
+            cmd = f"systemctl -l -a -n 0 status {unit_quoted}"
+            completed_process = self.execute(cmd, shell=True)
+            cgroups = self._get_cgroups(completed_process.stdout.splitlines())
+            if self.verbose > 1:
+                LOG.debug(f"Found Cgroups of systemd unit {self.unit!r}: " + pp(cgroups))
+
+            cprocs_message = "CPROCs are running"
+
+            for proc in self.processes:
+                bname = os.path.basename(proc)
+                if proc in cgroups:
+                    cgroup_status = self.status_ok
+                    cprocs_messages.append(f"CPROC {bname} is running")
+                else:
+                    cgroup_status = self.status_critical
+                    cprocs_messages.append(f"CPROC {bname} is MISSING")
+                    cprocs_message = "CPROCs are MISSING"
+                if cgroup_status > self.status:
+                    self.status = cgroup_status
+
+            messages.append(cprocs_message)
+
+        self.status_msg = f"Unit {self.unit!r}: " + ", ".join(messages)
+        if cprocs_messages:
+            self.status_msg += "\n" + "\n".join(cprocs_messages)
+
+    # -------------------------------------------------------------------------
+    def _get_cgroups(self, lines):
+
+        cgroups = []
+
+        pat_cgroup = r"^\s*CGroup:\s"
+        re_cgroup = re.compile(pat_cgroup, re.IGNORECASE)
+
+        pat_cgroups = r"^\s*(?:(├|└)─\s*\d+\s*)(?P<cgroup>.*)(?:[\x00-\x1f\x7f]|$)"
+        re_cgroups = re.compile(pat_cgroups)
+
+        in_cgroup = False
+        for line in lines:
+            if re_cgroup.match(line):
+                in_cgroup = True
+                continue
+            if in_cgroup:
+                match = re_cgroups.match(line)
+                if match:
+                    cgroup = match.group("cgroup")
+                    cgroups.append(cgroup)
+
+        return cgroups
+
+
+# =============================================================================
+
+if __name__ == "__main__":
+    plugin = CheckSystemdUnitPlugin()
+    plugin()
+
+# =============================================================================
+
+# vim: tabstop=4 expandtab shiftwidth=4 softtabstop=4
