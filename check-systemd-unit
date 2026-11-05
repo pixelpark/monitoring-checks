@@ -58,7 +58,7 @@ from shlex import quote
 from monitoring import MonitoringPlugin
 from monitoring import pp
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 LOG = logging.getLogger(__name__)
 
@@ -145,6 +145,18 @@ class CheckSystemdUnitPlugin(MonitoringPlugin):
         )
 
         check_group.add_argument(
+            "-u",
+            "--unit",
+            metavar="UNIT",
+            required=True,
+            help=(
+                "The name of systemd unit to check. "
+                "If the unit name does not end with the type of the unit, a unit of "
+                "type '.{}' is expected."
+            ).format(self.default_unit_type),
+        )
+
+        check_group.add_argument(
             "-p",
             "--process",
             metavar="PROCESS",
@@ -154,17 +166,6 @@ class CheckSystemdUnitPlugin(MonitoringPlugin):
                 "A cgroup process to check cwwhether it is running. "
                 "It can be given multiple times."
             )
-        )
-
-        check_group.add_argument(
-            "unit",
-            metavar="UNIT",
-            nargs=1,
-            help=(
-                "The name of systemd unit to check. "
-                "If the unit name does not end with the type of the unit, a unit of "
-                "type '.{}' is expected."
-            ).format(self.default_unit_type),
         )
 
     # -------------------------------------------------------------------------
@@ -185,7 +186,7 @@ class CheckSystemdUnitPlugin(MonitoringPlugin):
                     self.processes.append(proc_stripped)
 
         if hasattr(self.args, "unit") and self.args.unit:
-            given_unit = self.args.unit[0]
+            given_unit = self.args.unit
         else:
             self.nagios_exit(
                 self.status_unknown,
