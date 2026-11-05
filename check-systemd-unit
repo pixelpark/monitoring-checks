@@ -58,7 +58,7 @@ from shlex import quote
 from monitoring import MonitoringPlugin
 from monitoring import pp
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 LOG = logging.getLogger(__name__)
 
@@ -228,25 +228,31 @@ class CheckSystemdUnitPlugin(MonitoringPlugin):
         unit_status = units[0]
         if self.verbose > 2:
             LOG.debug("Found status of systemd unit {self.unit!r}:\n" + pp(unit_status))
-        active_status = unit_status["active"]
-        sub_status = unit_status["sub"]
-        if unit_status["active"] == "active":
+
+        load_status = unit_status["load"]
+        if load_status == self.expected_load_status:
             self.status = self.status_ok
         else:
             self.status = self.status_critical
+        messages.append(f"is {load_status}")
 
+        active_status = unit_status["active"]
+        sub_status = unit_status["sub"]
+        if active_status != self.expected_active_status:
+            if self.status < self.status_critical:
+                self.status = self.status_critical
         messages.append(f"is {active_status} ({sub_status})")
 
         cmd = f"systemctl --quiet is-enabled {unit_quoted}"
         completed_process = self.execute(cmd, shell=True)
         if completed_process.returncode == 0:
-            load_status = self.status_ok
+            enable_status = self.status_ok
             enable_msg = "is enabled"
         else:
-            load_status = self.status_warning
+            enable_status = self.status_warning
             enable_msg = "is NOT enabled"
-        if load_status > self.status:
-            self.status = load_status
+        if enable_status > self.status:
+            self.status = enable_status
         messages.insert(0, enable_msg)
 
         cprocs_messages = []
